@@ -1,0 +1,5 @@
+{
+  "name": "financial-agent-server",
+  "main": "index.js",
+  "compatibility_date": "2026-11-04"
+}

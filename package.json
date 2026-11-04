@@ -15,7 +15,7 @@
     "react-aria": "^3.45.0",
     "react-dom": "19.2.3",
     "react-native": "0.86.2",
-    "react-native-css": "^3.0.4",
+    "react-native-css": "3.0.7",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "^5.6.1",
     "react-native-svg": "^15.15.3",
@@ -38,8 +38,9 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "postinstall": "node scripts/patch-react-native-css-web.js",
-    "export:web": "expo export --platform web",
-    "preview:cf": "wrangler dev"
+    "export:web": "node scripts/export-web.js",
+    "preview:api": "wrangler dev -c dev/mock-api/wrangler.jsonc --port 8788 --ip 127.0.0.1",
+    "preview:cf": "wrangler dev --port 8787 --ip 127.0.0.1"
   },
   "private": true,
   "overrides": {

@@ -13,5 +13,8 @@
     "**/*.tsx",
     "global.d.ts", // 👈 ENSURE THIS LINE IS INCLUDED
     "nativewind-env.d.ts"
+  ],
+  "exclude": [
+    "worker"
   ]
 }

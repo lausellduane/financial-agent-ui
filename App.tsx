@@ -12,15 +12,21 @@ import { Spinner } from "./components/ui/spinner";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
 
-// Metro inlines EXPO_PUBLIC_API_URL at export time (static process.env.EXPO_PUBLIC_* access).
-// Leave it unset for local dev: web uses localhost, Android emulator uses 10.0.2.2.
+// Metro inlines this static process.env.EXPO_PUBLIC_* read at export time.
+// On web, unset, blank, or "/" means same-origin: requests go to /api/* on this host.
+// Native builds have no same-origin Worker, so an absolute origin is required.
+const rawApiUrl = process.env.EXPO_PUBLIC_API_URL;
+const trimmedApiUrl = (rawApiUrl ?? "").trim();
 const BACKEND_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  Platform.select({
-    web: "http://localhost:4000",
-    android: "http://10.0.2.2:4000",
-    default: "http://localhost:4000",
-  });
+  trimmedApiUrl === "" || trimmedApiUrl === "/"
+    ? ""
+    : trimmedApiUrl.replace(/\/+$/, "");
+
+if (Platform.OS !== "web" && BACKEND_URL === "") {
+  throw new Error(
+    "EXPO_PUBLIC_API_URL is required for native builds. Set it to the API origin with no path and no trailing slash.",
+  );
+}
 
 export default function App() {
   const [loading, setLoading] = useState(false);
@@ -62,6 +68,7 @@ export default function App() {
       const response = await fetch(`${BACKEND_URL}/api/upload`, {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -91,6 +98,7 @@ export default function App() {
       const response = await fetch(`${BACKEND_URL}/api/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ question: userQuery }),
       });
 

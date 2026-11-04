@@ -1,91 +1,116 @@
 # Cloudflare deploy spike: financial-agent-ui
 
-**Recommendation: deploy the web UI as a Cloudflare Workers static-asset site.** One assets-only Worker, no Worker script, no server-side rendering. Cloudflare Pages can host the same `dist/` directory, and Expo's publishing guide lists Pages as a generic static host. Workers static assets is the fit for this repo: Metro writes a static directory, Cloudflare's current static hosting path is Workers assets, and the API is already being evaluated as its own Worker.
+**Recommendation: one hostname.** The UI is a Cloudflare Workers static-asset site. A short Worker script runs only for `/api/*` and forwards those requests to the `financial-agent-server` Worker through a service binding named `API`. Every other request is served as a static asset and does not invoke the script. There is no server-side rendering and no app token. Cloudflare Access sits in front of the UI hostname.
 
-This spike did not deploy. There is no Cloudflare API token in this environment.
+Pages can host the same `dist/` directory. Workers static assets is the fit: Metro writes a static directory, and the `/api` proxy is a service binding on the same Worker. This spike did not deploy. There is no Cloudflare API token here.
 
-## What the framework actually emits
+## What the web export emits
 
-This is Expo SDK 57 (`expo ~57.0.12`) with React Native 0.86 and React Native Web. The entry is `registerRootComponent` in `index.ts`. There is no Expo Router, so `expo.web.output` (`single` / `static` / `server`) does not apply and must not be set to `server`.
+Expo SDK 57 (`expo ~57.0.12`), React Native 0.86, React Native Web. Entry is `registerRootComponent` in `index.ts`. There is no Expo Router, so `expo.web.output` does not apply and must stay unset.
 
-`npx expo export --platform web` (production mode) writes a client-rendered shell to `dist/`:
+`npm run export:web` runs `expo export --platform web --clear` (production mode) and writes `dist/`:
 
 | File | Size |
 | --- | --- |
-| `_expo/static/js/web/index-*.js` | 903,613 bytes (~883 KiB) |
-| `_expo/static/css/global-*.css` | 24,205 bytes |
+| `_expo/static/js/web/index-*.js` | 903,643 bytes (~882 KiB) |
+| `_expo/static/css/global-*.css` | 24,254 bytes |
 | `favicon.ico` | 14,510 bytes |
 | `index.html` | 1,416 bytes |
 | `metadata.json` | 49 bytes |
 | `_headers` | 145 bytes |
 
-Six files. `index.html` is an empty `<div id="root">` plus a deferred script. The page requires JavaScript. Nothing in the export is a server renderer, a Node process, or an API route.
-
-Verified with `npm run export:web` and `npx wrangler dev` (Wrangler 4.157.0) on 2026-11-04:
-
-- `GET /` returns `index.html` with `200`.
-- `GET /index.html` returns `307` to `/` (Wrangler's default `auto-trailing-slash` HTML handling).
-- `GET /unknown/path` returns `404`.
-- Hashed JS and CSS return `200` with `Cache-Control: public, max-age=31536000, immutable` from `public/_headers`.
-- Headless Chrome loaded the preview. The shell rendered "Secure Cash Management AI", the upload button, and the empty chat state, with no runtime exceptions.
-- `npx wrangler deploy --dry-run` read `dist/`, reported no bindings, and exited without publishing. Wrangler still uploads a placeholder script (0.31 KiB here) so the assets have a Worker version to attach to. The config sets no `main`, and a request that matches a file is served without invoking that script.
+Six files. `index.html` is an empty `<div id="root">` plus a deferred script. The page requires JavaScript. The Worker script that proxies `/api` is separate from this directory. `npx wrangler deploy --dry-run --env=""` uploaded that script at 0.61 KiB gzip 0.36 KiB, with bindings `env.API` (`financial-agent-server`) and `env.ASSETS`.
 
 ## SSR and SPA fallback
 
-**SSR: no.** The browser downloads one prebuilt JS bundle and renders the single screen. A Worker script would not be running any of this UI.
+**SSR: no.** The browser renders one prebuilt bundle.
 
-**SPA routing fallback: no.** The screen has no client router and no paths besides `/`. Unknown URLs should 404. `not_found_handling` is omitted on purpose. Setting `single-page-application` also serves `index.html` for a missing `/_expo/static/*` URL, and `public/_headers` marks that prefix immutable, so a missing bundle could be cached as HTML. Add `"not_found_handling": "single-page-application"` only if a client router is added later, and keep the long-cache rule off any URL that can fall back to HTML.
+**SPA fallback: no.** The only screen is `/`. Unknown URLs 404. `not_found_handling` is omitted. SPA mode would also serve `index.html` for a missing `/_expo/static/*` URL, and `public/_headers` marks that prefix immutable.
 
-## Environment variables
+## Same-origin API
 
-The only client configuration is the API origin. `App.tsx` reads it as a static property, which is the form Metro inlines:
+On web, the API base is the page's own origin. `POST /api/upload` and `POST /api/query` hit this Worker, which forwards them. Both fetches set `credentials: "include"`. On a same-origin request that is harmless: the browser sends the UI host's cookies, including the Access `CF_Authorization` cookie. Access then adds `Cf-Access-Jwt-Assertion` to the request the Worker sees. The Worker passes that `Request` to `env.API.fetch` unchanged, so the assertion header, method, body, and query string reach `financial-agent-server`. There is no app bearer token.
 
-```ts
-process.env.EXPO_PUBLIC_API_URL
-```
+`EXPO_PUBLIC_API_URL` changes only the browser's base:
 
-`expo export` runs in production mode. It loads `.env.production.local`, `.env.local`, `.env.production`, then `.env`, and it also sees variables already set in the process environment. The value is compiled into the JS. A production export with `EXPO_PUBLIC_API_URL=https://api.example.test` contained that origin and did not contain `localhost:4000`. An export with the variable unset kept the local defaults: `http://localhost:4000` on web and iOS, `http://10.0.2.2:4000` on the Android emulator.
+| Value | Web bundle |
+| --- | --- |
+| unset, blank, or `/` | Same-origin. Requests are `/api/...`. This is the production default. |
+| `https://api.example.com/` | `https://api.example.com` (trailing slash removed). The browser calls that host directly and does not use the service binding. |
 
-There is no runtime configuration. This Worker has no script, so Wrangler `[vars]`, secrets, and `env` bindings never reach the bundle. Changing the API origin means exporting again and redeploying. `.env*.local` is gitignored. Do not commit a `.env` with a real origin, and do not put secrets in `EXPO_PUBLIC_*`. Anything with that prefix is plain text in the bundle. The UI sends no credentials today: `POST /api/upload` (multipart file field `file`) and `POST /api/query` (`{ question }`).
+`npm run export:web` rejects anything that is not empty, `/`, or an absolute `http`/`https` origin with no userinfo, path, query, or hash. It normalizes a valid origin with `URL.origin` before Metro inlines it. Native builds have no same-origin Worker: if the normalized value is empty, the app throws at startup and tells you to set `EXPO_PUBLIC_API_URL`.
 
-See `.env.example`.
+Local web against the Express server on port 4000 still sets `EXPO_PUBLIC_API_URL=http://localhost:4000`. Local Android emulator: `http://10.0.2.2:4000`. Those are explicit. An empty production export does not call localhost.
+
+### Origin pair
+
+Use one public hostname for the UI. Origins have no path and no trailing slash.
+
+| Piece | Example |
+| --- | --- |
+| UI origin, and the origin Access protects | `https://finance.example.com` |
+| Browser API base | same origin, so `https://finance.example.com/api/upload` |
+| Service binding | name `API`, service `financial-agent-server` |
+| Poc override | `wrangler deploy --env poc` binds `API` to `financial-agent-server-poc` |
+
+`services` is not inherited by named environments, so `env.poc` in `wrangler.jsonc` sets that service name itself. `main` and `assets` are inherited. Dry-run of `--env poc` showed `env.API (financial-agent-server-poc)`.
+
+When `EXPO_PUBLIC_API_URL` is a different origin, the browser calls it directly. That host's CORS must allow credentials for the exact UI origin: `Access-Control-Allow-Origin: https://finance.example.com` and `Access-Control-Allow-Credentials: true`. `*` is invalid with credentials. A trailing slash on either origin is a mismatch and the browser hides the response. The default same-origin proxy does not make a browser CORS request. The server Worker should trust `Cf-Access-Jwt-Assertion` on the forwarded request.
 
 ## Wrangler
 
-`wrangler.jsonc` is the whole config: worker name `financial-agent-ui`, `assets.directory` `./dist`, compatibility date `2026-11-04`. No `main`, no assets binding, no `account_id` (pass that at deploy time). `npm run preview:cf` runs `wrangler dev`. Start it after `export:web` finishes. Wrangler reloads when `dist/` changes and can briefly 404 `/` mid-export.
+`wrangler.jsonc` sets `main` to `worker/index.ts`, `assets.directory` to `./dist`, `assets.binding` to `ASSETS`, and `assets.run_worker_first` to `["/api/*"]`. Static files, including the hashed bundles, never enter the script. `run_worker_first` is not `true`.
 
-`public/_headers` is copied into `dist/` by the Expo export. It is not served as a URL (`GET /_headers` is 404). Unmatched `/_expo/static/*` URLs 404 with the same immutable cache header, because the rule matches the request path. Those names are content hashes, so a 404 stays a 404.
+`dev/mock-api/` is a local stand-in named `financial-agent-server`. It is not what `wrangler deploy` publishes. Start it, then the UI, so the dev registry connects the binding:
+
+```bash
+npm run preview:api    # port 8788
+npm run preview:cf     # port 8787, wrangler dev --env=""
+```
+
+Verified on 2026-11-04 with Wrangler 4.157.0:
+
+- `GET /` returned `index.html` with `200` and did not log `forward`.
+- `GET /unknown/path` returned `404` and did not log `forward`.
+- The hashed JS returned `200` with `Cache-Control: public, max-age=31536000, immutable` and did not log `forward`.
+- `POST /api/upload` and `POST /api/query?x=1` logged `forward`, and the mock received the method, path, query string, body, and `Cf-Access-Jwt-Assertion`.
+- The dev session reported `env.API (financial-agent-server)` as `local [connected]`.
+- Headless Chrome rendered "Secure Cash Management AI" with no runtime exceptions.
+- `npx wrangler deploy --dry-run --env=""` and `--env poc` exited without publishing.
+
+`public/_headers` is copied into `dist/` and is not served (`GET /_headers` is 404). Pass `--env=""` on the production deploy. Wrangler warns if you omit it, because `env.poc` also exists.
 
 ## Deploy command
 
-From the repo root, on Node 22.13 or newer (Expo SDK 57's minimum):
+From the repo root, on Node 22.13 or newer:
 
 ```bash
-export EXPO_PUBLIC_API_URL="https://<public-api-origin>"   # no trailing slash
 export CLOUDFLARE_API_TOKEN="<token>"
 export CLOUDFLARE_ACCOUNT_ID="<account id>"
+# optional; omit for same-origin /api
+# export EXPO_PUBLIC_API_URL="https://api.example.com"
 npm ci
 npm run export:web
-npx wrangler deploy
+npx wrangler deploy --env=""
 ```
 
-`npm ci` runs `postinstall`, which applies the `react-native-css` web patch below. Do not pass `--ignore-scripts`.
+Poc: `npx wrangler deploy --env poc` after the same export. The first production deploy is `financial-agent-ui.<account-subdomain>.workers.dev` unless a route is added. Put Access on the hostname users open. The API Worker does not need its own public hostname for the default path.
 
-`npx wrangler deploy` publishes the assets. It does not read `EXPO_PUBLIC_API_URL`. The first successful deploy is served at `financial-agent-ui.<account-subdomain>.workers.dev`. A custom hostname is a later DevOps step (a route or a workers.dev override). This config does not set one.
+`npm ci` runs `postinstall`, which tries the `react-native-css` patch and does not fail the install. `export:web` runs the same patch with `--strict` and fails the export if it cannot apply. Do not pass `--ignore-scripts`.
 
 ### What the command needs
 
-| Name | Kind | Where | Purpose |
-| --- | --- | --- | --- |
-| `EXPO_PUBLIC_API_URL` | Build-time variable, public | Shell or GitHub Actions variable, set before `export:web` | API origin inlined into the bundle. Use the public HTTPS origin of `financial-agent-server`. |
-| `CLOUDFLARE_API_TOKEN` | Secret | Shell or GitHub Actions secret | Wrangler auth. Custom token with the account permission **Edit Cloudflare Workers**, scoped to this account only. |
-| `CLOUDFLARE_ACCOUNT_ID` | Secret or variable | Shell or GitHub Actions secret | Account that owns the Worker. Wrangler reads it from the environment. |
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Secret | Custom token with account permission **Edit Cloudflare Workers**, scoped to this account. |
+| `CLOUDFLARE_ACCOUNT_ID` | Secret or variable | Account that owns the Worker. |
+| `EXPO_PUBLIC_API_URL` | Optional build-time public variable | Omit for same-origin `/api`. Set an absolute origin only to bypass the proxy. Never a secret. |
 
-No Worker secrets and no Wrangler `[vars]`. The token must not be committed.
+No Worker secrets and no Wrangler `[vars]`. The token must not be committed. The upstream Worker named in the binding has to exist before `/api` calls succeed. This repo does not deploy it.
 
 ## GitHub Actions outline
 
-DevOps owns the pipeline. This is the shape, not a workflow in the repo:
+DevOps owns the pipeline. This PR does not add a workflow.
 
 ```yaml
 name: Deploy UI
@@ -104,36 +129,33 @@ jobs:
       - run: npm ci
       - run: npm run export:web
         env:
+          # Omit, or leave empty, for same-origin /api.
           EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
       - uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --env=""
 ```
 
-A pull-request preview is the same job against a second worker name (`wrangler deploy --name financial-agent-ui-preview`) and a preview value of `EXPO_PUBLIC_API_URL`. Each environment needs its own export, because the origin is baked in.
+A preview deploy is `command: deploy --env poc` (or another env whose `services[0].service` is the preview API Worker). The browser origin is baked only when `EXPO_PUBLIC_API_URL` is an absolute origin. The same-origin bundle is the same for every hostname.
 
 ## Blockers
 
 ### Asset and Worker limits are not the constraint
 
-[Workers static asset limits](https://developers.cloudflare.com/workers/platform/limits/) are 25 MiB per file and 20,000 files on the free plan (100,000 on paid; Wrangler 4.34.0 or newer for that higher count). This export is 6 files and the largest is 883 KiB. The Worker size limit (64 MiB) and the free-plan CPU limit (10 ms) apply to a Worker script. This config has none. Static asset requests are not Worker invocations.
-
-`metadata.json` is Expo's export manifest. It has no secrets. It is uploaded with the site.
+[Workers static asset limits](https://developers.cloudflare.com/workers/platform/limits/) are 25 MiB per file and 20,000 files on the free plan (100,000 on paid; Wrangler 4.34.0 or newer). This export is 6 files and the largest is 882 KiB. The proxy script is 0.61 KiB. The free-plan CPU limit applies only when the script runs, which is `/api/*`, not page views. `metadata.json` is Expo's export manifest. It has no secrets.
 
 ### The web bundle crashes without a `react-native-css` patch
 
-NativeWind 5 (`nativewind@5.0.0-preview.4`, direct dependency `react-native-css@3.0.7`) rewrites `react-native-web`'s own imports onto its CSS wrappers. The production bundle then throws `Cannot read properties of undefined (reading 'default')` on `FlatList` before React renders. Confirmed in headless Chrome against the unpatched export. The same crash happens on any static host. It is not a Cloudflare runtime gap. Upstream report: [nativewind/react-native-css#380](https://github.com/nativewind/react-native-css/issues/380). `react-native-css@3.1.0-rc.1` still has the bug.
+NativeWind 5 pulls `react-native-css@3.0.7` (pinned exactly). That version rewrites `react-native-web`'s own imports and throws `Cannot read properties of undefined (reading 'default')` on `FlatList` before React renders. Same crash on any static host. Upstream: [nativewind/react-native-css#380](https://github.com/nativewind/react-native-css/issues/380). `3.1.0-rc.1` still has the bug.
 
-`scripts/patch-react-native-css-web.js` runs from `postinstall` and teaches the Babel plugin and the Metro web resolver to leave files inside `react-native-web` alone. App imports of `react-native` still get the CSS wrappers. The patched export rendered. The script throws if `3.0.7`'s source no longer matches, so a silent upgrade cannot ship a blank page. Remove the patch when that issue is fixed. iOS and Android are outside the guard.
+`scripts/patch-react-native-css-web.js` locates the package with `require.resolve`. It checks all five edits, then writes. A missing package, a version other than 3.0.7, or source that does not match is a warning and exit 0, so `npm install` still finishes. `export:web` passes `--strict` and fails instead of shipping the blank page. Remove the patch when the upstream issue is fixed.
 
-### The deployed UI cannot call the API that exists today
+### The API Worker is a separate deploy
 
-`lausellduane/financial-agent-server` is Express on port 4000 (`app.listen(4000)`), with `cors()` open, `multer` writing to local disk, and a local Ollama client. A page on `*.workers.dev` is HTTPS. The browser will block `http://localhost:4000` and any plain HTTP API (mixed content), and it will not reach the deployer's machine. Set `EXPO_PUBLIC_API_URL` to the public HTTPS origin of whatever the server spike deploys.
-
-The browser calls that origin directly. It does not pass through this Worker, so upload size is a server limit, not a static-asset limit. `POST /api/query` uses `Content-Type: application/json`, which triggers a CORS preflight. The current `cors()` middleware answers that. A Workers port of the server has to keep an `Access-Control-Allow-Origin` for the UI origin (and answer `OPTIONS`) or the hosted page will load and every request will fail in the browser.
+`lausellduane/financial-agent-server` today is Express on port 4000 with `cors()` open, `multer` on local disk, and a local Ollama client. The hosted UI does not call that process. `/api/*` reaches whatever Worker is named `financial-agent-server`. Until that Worker is deployed, the shell loads and API calls fail at the binding. A cross-origin `EXPO_PUBLIC_API_URL` additionally needs the CORS credential rule above.
 
 ### Not blockers
 
-`expo-document-picker` supports web. The picker already runs from the upload button, which is the user gesture the web API requires. No Node built-ins are required in the browser bundle. No D1, KV, or R2 binding belongs on this Worker. The server spike owns storage.
+`expo-document-picker` supports web and already runs from the upload button. No Node built-ins are required in the browser bundle. No D1, KV, or R2 binding belongs on this Worker.

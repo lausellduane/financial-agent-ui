@@ -1,23 +1,19 @@
 /**
- * react-native-css@3.0.7 rewrites react-native-web's own imports to its CSS
- * wrappers. That cycle crashes the web bundle at startup (FlatList default is
- * undefined) on every static host, including Cloudflare.
+ * react-native-css@3.0.7 rewrites react-native-web's own imports onto its CSS
+ * wrappers. That cycle crashes the web bundle before React renders.
  * Upstream: https://github.com/nativewind/react-native-css/issues/380
  *
- * Keep react-native-web internals on the raw components. App imports of
- * react-native still receive the CSS wrappers.
+ * Install (postinstall) never fails the install: a missing package, a different
+ * version, or source that does not match is a warning and exit 0. No file is
+ * written unless every edit matches. `export:web` runs this with --strict and
+ * fails the export instead.
  */
 const fs = require("fs");
 const path = require("path");
 
-const root = path.join(__dirname, "..", "node_modules", "react-native-css");
-const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-
-if (pkg.version !== "3.0.7") {
-  console.warn(
-    `react-native-css@${pkg.version}: this web-crash patch was written for 3.0.7. Re-export the web bundle and confirm the page renders.`,
-  );
-}
+const strict = process.argv.includes("--strict");
+const projectRoot = path.join(__dirname, "..");
+const EXPECTED_VERSION = "3.0.7";
 
 const patches = [
   {
@@ -63,18 +59,59 @@ const patches = [
   },
 ];
 
+function finish(message) {
+  console.warn(message);
+  process.exit(strict ? 1 : 0);
+}
+
+let packageJsonPath;
+try {
+  packageJsonPath = require.resolve("react-native-css/package.json", {
+    paths: [projectRoot],
+  });
+} catch {
+  finish(
+    "react-native-css was not found. Skipping the web-crash patch. npm run export:web will fail until 3.0.7 is installed.",
+  );
+}
+
+const packageRoot = path.dirname(packageJsonPath);
+const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+if (pkg.version !== EXPECTED_VERSION) {
+  finish(
+    `react-native-css@${pkg.version} is installed; the web-crash patch matches only ${EXPECTED_VERSION}. Skipping. npm run export:web will fail.`,
+  );
+}
+
+const original = new Map();
 for (const patch of patches) {
-  const file = path.join(root, patch.file);
-  const text = fs.readFileSync(file, "utf8");
-  if (text.includes(patch.to)) {
-    console.log(`already patched ${patch.file}`);
-    continue;
-  }
-  if (!text.includes(patch.from)) {
-    throw new Error(
-      `Could not patch ${patch.file}. react-native-css@${pkg.version} no longer matches the expected source.`,
+  if (original.has(patch.file)) continue;
+  const absolute = path.join(packageRoot, patch.file);
+  if (!fs.existsSync(absolute)) {
+    finish(
+      `react-native-css@${EXPECTED_VERSION} is missing ${patch.file}. Skipping the web-crash patch.`,
     );
   }
-  fs.writeFileSync(file, text.replace(patch.from, patch.to));
-  console.log(`patched ${patch.file}`);
+  original.set(patch.file, fs.readFileSync(absolute, "utf8"));
+}
+
+const next = new Map(original);
+for (const patch of patches) {
+  let text = next.get(patch.file);
+  if (text.includes(patch.to)) continue;
+  if (!text.includes(patch.from)) {
+    finish(
+      `react-native-css@${EXPECTED_VERSION} ${patch.file} does not match the expected source. No files were changed.`,
+    );
+  }
+  next.set(patch.file, text.replace(patch.from, patch.to));
+}
+
+for (const [file, text] of next) {
+  if (text === original.get(file)) {
+    console.log(`already patched ${file}`);
+    continue;
+  }
+  fs.writeFileSync(path.join(packageRoot, file), text);
+  console.log(`patched ${file}`);
 }
