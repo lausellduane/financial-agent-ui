@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "financial-agent-ui",
+  // Assets-only. Do not add "main" or an assets binding unless a Worker script is required.
+  // Page views are static asset requests: they are not Worker invocations and do not use the CPU time limit.
+  "compatibility_date": "2026-11-04",
+  "assets": {
+    // `npm run export:web` writes Metro's production web bundle here.
+    "directory": "./dist"
+    // No not_found_handling. This app has no client router: `/` is index.html,
+    // and any other path should 404. SPA fallback would also serve index.html
+    // for a missing `/_expo/static/*` file, and public/_headers marks that
+    // prefix immutable. Add "single-page-application" only if a client router lands.
+  }
+}

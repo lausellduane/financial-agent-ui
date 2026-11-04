@@ -12,13 +12,15 @@ import { Spinner } from "./components/ui/spinner";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
 
-// WINDOWS NETWORK ROUTING CONFIGURATION:
-// Web preview uses localhost. Android Emulator maps back to host via 10.0.2.2.
-const BACKEND_URL = Platform.select({
-  web: "http://localhost:4000",
-  android: "http://10.0.2.2:4000",
-  default: "http://localhost:4000",
-});
+// Metro inlines EXPO_PUBLIC_API_URL at export time (static process.env.EXPO_PUBLIC_* access).
+// Leave it unset for local dev: web uses localhost, Android emulator uses 10.0.2.2.
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  Platform.select({
+    web: "http://localhost:4000",
+    android: "http://10.0.2.2:4000",
+    default: "http://localhost:4000",
+  });
 
 export default function App() {
   const [loading, setLoading] = useState(false);
