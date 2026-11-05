@@ -6,7 +6,12 @@ import { styled } from 'nativewind';
 
 
 const StyledActivityIndicator = styled(ActivityIndicator, {
-  className: { target: 'style', nativeStyleToProp: { color: true } },
+  className: {
+    target: 'style',
+    // nativewind types this prop as undefined for ActivityIndicator.
+    // @ts-expect-error nativeStyleToProp is required at runtime and untyped here.
+    nativeStyleToProp: { color: true },
+  },
 });
 const spinnerStyle = tva({});
 
