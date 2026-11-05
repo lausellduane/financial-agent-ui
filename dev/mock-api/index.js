@@ -1,5 +1,21 @@
 // Local stand-in. Name is financial-agent-server-mock so a deploy cannot
 // replace the real financial-agent-server Worker. The UI dev env binds it.
+function replacementCount(raw) {
+  const rows = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.includes(",") &&
+        !line.startsWith("--") &&
+        !line.toLowerCase().startsWith("content-"),
+    );
+  if (rows.length === 0) return 12;
+  const header = /date|amount|description|transaction/i.test(rows[0]);
+  const count = header ? rows.length - 1 : rows.length;
+  return count > 0 ? count : rows.length;
+}
+
 let report = {
   loaded: true,
   count: 128,
@@ -15,14 +31,16 @@ export default {
       return Response.json(report);
     }
     if (request.method === "POST" && url.pathname === "/api/upload") {
+      const raw = await request.text();
+      const count = replacementCount(raw);
       report = {
-        loaded: true,
-        count: report.count + 12,
+        loaded: count > 0,
+        count,
         startDate: report.startDate,
         endDate: report.endDate,
         uploadedAt: new Date().toISOString(),
       };
-      return Response.json({ count: 12 });
+      return Response.json({ count });
     }
     const body =
       request.method === "GET" || request.method === "HEAD"

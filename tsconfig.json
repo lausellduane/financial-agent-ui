@@ -15,6 +15,7 @@
     "nativewind-env.d.ts"
   ],
   "exclude": [
-    "worker"
+    "worker",
+    "report-status.test.ts"
   ]
 }

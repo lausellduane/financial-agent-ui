@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ScrollView, Alert, Platform } from "react-native";
 import { GluestackUIProvider } from "./components/ui/gluestack-ui-provider";
 import { Box } from "./components/ui/box";
@@ -11,6 +11,11 @@ import { Card } from "./components/ui/card";
 import { Spinner } from "./components/ui/spinner";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
+import {
+  NO_REPORT,
+  formatReportStatus,
+  statusForFailedReportCheck,
+} from "./report-status";
 
 // Metro inlines this static process.env.EXPO_PUBLIC_* read at export time.
 // On web, unset, blank, or "/" means same-origin: requests go to /api/* on this host.
@@ -23,53 +28,23 @@ const BACKEND_URL =
     ? ""
     : trimmedApiUrl.replace(/\/+$/, "");
 const missingNativeApiUrl = Platform.OS !== "web" && BACKEND_URL === "";
-const NO_REPORT = "No report loaded";
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  return value as Record<string, unknown>;
-}
+type ReportCheck =
+  | { failed: false; body: unknown }
+  | { failed: true; httpStatus: number | null };
 
-function readCount(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
+async function readReportCheck(): Promise<ReportCheck> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/report`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return { failed: true, httpStatus: response.status };
+    return { failed: false, body: await response.json() };
+  } catch {
+    return { failed: true, httpStatus: null };
   }
-  return undefined;
-}
-
-function readDay(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
-}
-
-// GET /api/report: { loaded, count, startDate, endDate, uploadedAt }.
-// Missing or null fields stay off the status line.
-function formatReportStatus(body: unknown): string {
-  const record = asRecord(body);
-  if (!record || record.loaded !== true) return NO_REPORT;
-
-  const count = readCount(record.count);
-  if (count === undefined) return NO_REPORT;
-
-  const start = readDay(record.startDate);
-  const end = readDay(record.endDate);
-  const noun = count === 1 ? "transaction" : "transactions";
-  if (start && end) return `Report loaded: ${count} ${noun}, ${start}–${end}`;
-  if (start || end) return `Report loaded: ${count} ${noun}, ${start || end}`;
-  return `Report loaded: ${count} ${noun}`;
-}
-
-async function fetchReportStatus(): Promise<string> {
-  const response = await fetch(`${BACKEND_URL}/api/report`, {
-    method: "GET",
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) return NO_REPORT;
-  return formatReportStatus(await response.json());
 }
 
 export default function App() {
@@ -77,17 +52,28 @@ export default function App() {
   const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ role: string; text: string }[]>([]);
+  const reportRequestSeq = useRef(0);
+
+  function applyReportCheck(
+    seq: number,
+    check: ReportCheck,
+    uploadBody?: unknown,
+  ) {
+    if (seq !== reportRequestSeq.current) return;
+    if (check.failed) {
+      setStatus(statusForFailedReportCheck(check.httpStatus, uploadBody));
+      return;
+    }
+    setStatus(formatReportStatus(check.body));
+  }
 
   useEffect(() => {
     if (missingNativeApiUrl) return;
+    const seq = ++reportRequestSeq.current;
     let cancelled = false;
-    fetchReportStatus()
-      .then((next) => {
-        if (!cancelled) setStatus(next);
-      })
-      .catch(() => {
-        if (!cancelled) setStatus(NO_REPORT);
-      });
+    readReportCheck().then((check) => {
+      if (!cancelled) applyReportCheck(seq, check);
+    });
     return () => {
       cancelled = true;
     };
@@ -135,12 +121,9 @@ export default function App() {
         throw new Error(errData.error || "Ingestion pipeline failed");
       }
 
-      await response.json().catch(() => undefined);
-      try {
-        setStatus(await fetchReportStatus());
-      } catch {
-        setStatus(NO_REPORT);
-      }
+      const uploadBody = await response.json().catch(() => undefined);
+      const seq = ++reportRequestSeq.current;
+      applyReportCheck(seq, await readReportCheck(), uploadBody);
     } catch (err: any) {
       Alert.alert("Upload Error", err.message || "Could not upload report.");
     } finally {
