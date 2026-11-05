@@ -30,7 +30,9 @@
       ]
     },
     "poc": {
-      // Access already covers https://financial-agent-ui-poc.lausellduane.workers.dev.
+      // workers_dev is on only while Access covers
+      // https://financial-agent-ui-poc.lausellduane.workers.dev.
+      // Re-check that Access application before reusing this env or copying workers_dev: true.
       "workers_dev": true,
       "services": [
         {

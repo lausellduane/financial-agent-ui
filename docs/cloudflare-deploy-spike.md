@@ -29,7 +29,7 @@ Six files. `index.html` is an empty `<div id="root">` plus a deferred script. Th
 
 ## Same-origin API
 
-On web, the API base is the page's own origin. `POST /api/upload` and `POST /api/query` hit this Worker, which forwards them. Both fetches set `credentials: "include"`. On a same-origin request that is harmless: the browser sends the UI host's cookies, including the Access `CF_Authorization` cookie. Access then adds `Cf-Access-Jwt-Assertion` to the request the Worker sees. The Worker builds a new request with the same method, URL, and body, and copies only `content-type`, `Cf-Access-Jwt-Assertion`, `cookie`, and `accept`. There is no app bearer token.
+On web, the API base is the page's own origin. `POST /api/upload` and `POST /api/query` hit this Worker, which forwards them. Both fetches set `credentials: "include"`. On a same-origin request that is harmless: the browser sends the UI host's cookies, including the Access `CF_Authorization` cookie. Access then adds `Cf-Access-Jwt-Assertion` to the request the Worker sees. The Worker builds a new request with the same method, URL, and body, and copies only `content-type`, `accept`, and `Cf-Access-Jwt-Assertion`. It does not forward `cookie`. There is no app bearer token.
 
 `EXPO_PUBLIC_API_URL` changes only the browser's base:
 
@@ -62,7 +62,7 @@ When `EXPO_PUBLIC_API_URL` is a different origin, the browser calls it directly.
 
 `wrangler.jsonc` sets `main` to `worker/index.ts`, `assets.directory` to `./dist`, `assets.binding` to `ASSETS`, and `assets.run_worker_first` to `["/api", "/api/*"]`. The bare `/api` path is included so a request with no extra segment still hits the script. Static files, including the hashed bundles, never enter the script. `run_worker_first` is not `true`.
 
-`workers_dev` is false on the top-level config and on `env.dev`. Production is published on a hostname Access covers, not on `financial-agent-ui.<subdomain>.workers.dev`. `env.poc` sets `workers_dev` true because Access already covers `https://financial-agent-ui-poc.lausellduane.workers.dev`.
+`workers_dev` is false on the top-level config and on `env.dev`. Production is published on a hostname Access covers, not on `financial-agent-ui.<subdomain>.workers.dev`. `env.poc` sets `workers_dev` true only while Access covers `https://financial-agent-ui-poc.lausellduane.workers.dev`. Re-check that Access application before reusing the poc env or copying `workers_dev: true`.
 
 `dev/mock-api/` is a local stand-in named `financial-agent-server-mock`. That name cannot replace the real API Worker if someone deploys the mock config. Only `env.dev` binds `API` to it. Start the mock, then the UI:
 
@@ -77,7 +77,7 @@ Checked after `npm ci` and `npm run export:web` on 2026-11-05:
 - The web bundle uses an empty API base and `credentials: "include"`.
 - `wrangler dev --env dev` reported `env.API (financial-agent-server-mock)` as `local [connected]`.
 - `GET /` returned `index.html` with `200`. `GET /unknown/path` returned `404`.
-- `GET /api` was forwarded. `POST /api/upload` arrived with `Cf-Access-Jwt-Assertion`, `cookie`, `accept`, `content-type`, and the body. An `X-Not-Forwarded` header did not.
+- `GET /api` was forwarded. `POST /api/upload` arrived with `content-type`, `accept`, `Cf-Access-Jwt-Assertion`, and the body. `cookie` and an `X-Not-Forwarded` header did not.
 - `npx wrangler deploy --dry-run` for `--env=""`, `--env dev`, and `--env poc` exited without publishing.
 
 `public/_headers` is copied into `dist/` and is not served (`GET /_headers` is 404). Pass `--env=""` on the production deploy. Wrangler warns if you omit it, because `env.dev` and `env.poc` also exist.
@@ -156,7 +156,7 @@ NativeWind 5 pulls `react-native-css@3.0.7` (pinned exactly). That version rewri
 
 ### Native apps cannot pass Cloudflare Access yet
 
-The web UI sends the Access cookie because the page and `/api` share a hostname. A native build has no `CF_Authorization` cookie and no `Cf-Access-Jwt-Assertion` header, so the same Worker answers those calls with Access's 401. Setting `EXPO_PUBLIC_API_URL` only chooses the host. It does not log the device in. The follow-up is an Access service token held on the server side of a small login exchange, or a native Access login flow that stores the application token and sends it on each request. Until one of those exists, ship the web UI and keep native builds off the Access-protected API.
+The web UI sends the Access cookie because the page and `/api` share a hostname. Access turns that cookie into `Cf-Access-Jwt-Assertion` before this Worker runs, and the proxy forwards that header. A native build has no Access login, so it has no user JWT and the protected API answers 401. Setting `EXPO_PUBLIC_API_URL` only chooses the host. It does not sign the person in. The follow-up is a native Access login that obtains a JWT for that user and sends it as `Cf-Access-Jwt-Assertion` on each request. Do not use an Access service token. The server rejects tokens whose type is `app` ([financial-agent-server#1](https://github.com/lausellduane/financial-agent-server/pull/1)). Until a user login exists, ship the web UI and keep native builds off the Access-protected API.
 
 ### The API Worker is a separate deploy
 

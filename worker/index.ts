@@ -9,9 +9,8 @@ export interface Env {
 
 const FORWARDED_HEADERS = [
   "content-type",
-  "cf-access-jwt-assertion",
-  "cookie",
   "accept",
+  "cf-access-jwt-assertion",
 ] as const;
 
 function isApiPath(pathname: string): boolean {
