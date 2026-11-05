@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ScrollView, Alert, Platform } from "react-native";
 import { GluestackUIProvider } from "./components/ui/gluestack-ui-provider";
 import { Box } from "./components/ui/box";
@@ -11,6 +11,11 @@ import { Card } from "./components/ui/card";
 import { Spinner } from "./components/ui/spinner";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
+import {
+  NO_REPORT,
+  formatReportStatus,
+  statusForFailedReportCheck,
+} from "./report-status";
 
 // Metro inlines this static process.env.EXPO_PUBLIC_* read at export time.
 // On web, unset, blank, or "/" means same-origin: requests go to /api/* on this host.
@@ -24,11 +29,55 @@ const BACKEND_URL =
     : trimmedApiUrl.replace(/\/+$/, "");
 const missingNativeApiUrl = Platform.OS !== "web" && BACKEND_URL === "";
 
+type ReportCheck =
+  | { failed: false; body: unknown }
+  | { failed: true; httpStatus: number | null };
+
+async function readReportCheck(): Promise<ReportCheck> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/report`, {
+      method: "GET",
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) return { failed: true, httpStatus: response.status };
+    return { failed: false, body: await response.json() };
+  } catch {
+    return { failed: true, httpStatus: null };
+  }
+}
+
 export default function App() {
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("No report loaded");
+  const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ role: string; text: string }[]>([]);
+  const reportRequestSeq = useRef(0);
+
+  function applyReportCheck(
+    seq: number,
+    check: ReportCheck,
+    uploadBody?: unknown,
+  ) {
+    if (seq !== reportRequestSeq.current) return;
+    if (check.failed) {
+      setStatus(statusForFailedReportCheck(check.httpStatus, uploadBody));
+      return;
+    }
+    setStatus(formatReportStatus(check.body));
+  }
+
+  useEffect(() => {
+    if (missingNativeApiUrl) return;
+    const seq = ++reportRequestSeq.current;
+    let cancelled = false;
+    readReportCheck().then((check) => {
+      if (!cancelled) applyReportCheck(seq, check);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Securely upload and parse statements locally on Windows
   const handleFileUpload = async () => {
@@ -72,8 +121,9 @@ export default function App() {
         throw new Error(errData.error || "Ingestion pipeline failed");
       }
 
-      const data = await response.json();
-      setStatus(`Loaded: ${data.count} records cached securely.`);
+      const uploadBody = await response.json().catch(() => undefined);
+      const seq = ++reportRequestSeq.current;
+      applyReportCheck(seq, await readReportCheck(), uploadBody);
     } catch (err: any) {
       Alert.alert("Upload Error", err.message || "Could not upload report.");
     } finally {
@@ -118,10 +168,7 @@ export default function App() {
       <GluestackUIProvider>
         <Box className="flex-1 bg-background-50 p-6 pt-12">
           <VStack space="md" className="max-w-[600px] mx-auto w-full">
-            <Card
-              variant="elevated"
-              className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm"
-            >
+            <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
               <VStack space="xs">
                 <Text className="text-xl font-bold text-typography-900">
                   API address required
@@ -143,10 +190,7 @@ export default function App() {
       <Box className="flex-1 bg-background-50 p-6 pt-12">
         <VStack space="md" className="max-w-[600px] mx-auto w-full flex-1">
           {/* Top Panel Brand Status Card */}
-          <Card
-            variant="elevated"
-            className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm"
-          >
+          <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
             <VStack space="xs">
               <Text className="text-xl font-bold text-typography-900">
                 Secure Cash Management AI
