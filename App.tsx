@@ -12,13 +12,17 @@ import { Spinner } from "./components/ui/spinner";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
 
-// WINDOWS NETWORK ROUTING CONFIGURATION:
-// Web preview uses localhost. Android Emulator maps back to host via 10.0.2.2.
-const BACKEND_URL = Platform.select({
-  web: "http://localhost:4000",
-  android: "http://10.0.2.2:4000",
-  default: "http://localhost:4000",
-});
+// Metro inlines this static process.env.EXPO_PUBLIC_* read at export time.
+// On web, unset, blank, or "/" means same-origin: requests go to /api/* on this host.
+// Native builds have no same-origin Worker, so an absolute origin is required.
+// A missing URL renders an error screen. It does not throw during import.
+const rawApiUrl = process.env.EXPO_PUBLIC_API_URL;
+const trimmedApiUrl = (rawApiUrl ?? "").trim();
+const BACKEND_URL =
+  trimmedApiUrl === "" || trimmedApiUrl === "/"
+    ? ""
+    : trimmedApiUrl.replace(/\/+$/, "");
+const missingNativeApiUrl = Platform.OS !== "web" && BACKEND_URL === "";
 
 export default function App() {
   const [loading, setLoading] = useState(false);
@@ -60,6 +64,7 @@ export default function App() {
       const response = await fetch(`${BACKEND_URL}/api/upload`, {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -89,6 +94,7 @@ export default function App() {
       const response = await fetch(`${BACKEND_URL}/api/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ question: userQuery }),
       });
 
@@ -106,6 +112,31 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  if (missingNativeApiUrl) {
+    return (
+      <GluestackUIProvider>
+        <Box className="flex-1 bg-background-50 p-6 pt-12">
+          <VStack space="md" className="max-w-[600px] mx-auto w-full">
+            <Card
+              variant="elevated"
+              className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm"
+            >
+              <VStack space="xs">
+                <Text className="text-xl font-bold text-typography-900">
+                  API address required
+                </Text>
+                <Text className="text-sm text-typography-500 font-medium">
+                  Set EXPO_PUBLIC_API_URL to the API origin, with no path and no
+                  trailing slash, then rebuild the iOS or Android app.
+                </Text>
+              </VStack>
+            </Card>
+          </VStack>
+        </Box>
+      </GluestackUIProvider>
+    );
+  }
 
   return (
     <GluestackUIProvider>

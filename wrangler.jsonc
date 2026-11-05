@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "financial-agent-ui",
+  "main": "worker/index.ts",
+  // Asset requests do not invoke this script. Only /api and /api/* do.
+  // Page views are not Worker invocations and do not use the CPU time limit.
+  "compatibility_date": "2026-11-04",
+  // Production has no workers.dev URL. Publish it on a hostname Access covers.
+  "workers_dev": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api", "/api/*"]
+  },
+  "services": [
+    {
+      "binding": "API",
+      "service": "financial-agent-server"
+    }
+  ],
+  // `services` is not inherited by named environments.
+  "env": {
+    "dev": {
+      "workers_dev": false,
+      "services": [
+        {
+          "binding": "API",
+          "service": "financial-agent-server-mock"
+        }
+      ]
+    },
+    "poc": {
+      // workers_dev is on only while Access covers
+      // https://financial-agent-ui-poc.lausellduane.workers.dev.
+      // Re-check that Access application before reusing this env or copying workers_dev: true.
+      "workers_dev": true,
+      "services": [
+        {
+          "binding": "API",
+          "service": "financial-agent-server-poc"
+        }
+      ]
+    }
+  }
+}

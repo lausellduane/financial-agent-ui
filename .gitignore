@@ -9,6 +9,9 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Wrangler local state
+.wrangler/
+
 # Native
 .kotlin/
 *.orig.*
