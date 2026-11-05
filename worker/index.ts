@@ -7,8 +7,30 @@ export interface Env {
   };
 }
 
+const FORWARDED_HEADERS = [
+  "content-type",
+  "cf-access-jwt-assertion",
+  "cookie",
+  "accept",
+] as const;
+
 function isApiPath(pathname: string): boolean {
   return pathname === "/api" || pathname.startsWith("/api/");
+}
+
+function forwardedApiRequest(request: Request): Request {
+  const headers = new Headers();
+  for (const name of FORWARDED_HEADERS) {
+    const value = request.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
+  const method = request.method;
+  return new Request(request.url, {
+    method,
+    headers,
+    body: method === "GET" || method === "HEAD" ? undefined : request.body,
+    redirect: "manual",
+  });
 }
 
 export default {
@@ -17,9 +39,6 @@ export default {
     if (!isApiPath(pathname)) {
       return env.ASSETS.fetch(request);
     }
-    // Pass the original Request through so method, body, and headers stay intact,
-    // including Cf-Access-Jwt-Assertion added by Cloudflare Access.
-    console.log(`forward ${request.method} ${pathname}`);
-    return env.API.fetch(request);
+    return env.API.fetch(forwardedApiRequest(request));
   },
 };

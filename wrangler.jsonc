@@ -2,13 +2,15 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "financial-agent-ui",
   "main": "worker/index.ts",
-  // Asset requests do not invoke this script. Only /api/* does.
+  // Asset requests do not invoke this script. Only /api and /api/* do.
   // Page views are not Worker invocations and do not use the CPU time limit.
   "compatibility_date": "2026-11-04",
+  // Production has no workers.dev URL. Publish it on a hostname Access covers.
+  "workers_dev": false,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api", "/api/*"]
   },
   "services": [
     {
@@ -16,10 +18,20 @@
       "service": "financial-agent-server"
     }
   ],
-  // `services` is not inherited by named environments. `wrangler deploy --env poc`
-  // forwards /api/* to financial-agent-server-poc instead.
+  // `services` is not inherited by named environments.
   "env": {
+    "dev": {
+      "workers_dev": false,
+      "services": [
+        {
+          "binding": "API",
+          "service": "financial-agent-server-mock"
+        }
+      ]
+    },
     "poc": {
+      // Access already covers https://financial-agent-ui-poc.lausellduane.workers.dev.
+      "workers_dev": true,
       "services": [
         {
           "binding": "API",

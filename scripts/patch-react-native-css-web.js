@@ -107,11 +107,26 @@ for (const patch of patches) {
   next.set(patch.file, text.replace(patch.from, patch.to));
 }
 
+function writeAtomic(dest, text) {
+  const tmp = `${dest}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, text);
+  try {
+    fs.renameSync(tmp, dest);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // The original file is unchanged. Leave the temp file only if unlink fails.
+    }
+    throw err;
+  }
+}
+
 for (const [file, text] of next) {
   if (text === original.get(file)) {
     console.log(`already patched ${file}`);
     continue;
   }
-  fs.writeFileSync(path.join(packageRoot, file), text);
+  writeAtomic(path.join(packageRoot, file), text);
   console.log(`patched ${file}`);
 }

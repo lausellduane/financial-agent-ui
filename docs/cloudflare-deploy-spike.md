@@ -19,7 +19,7 @@ Expo SDK 57 (`expo ~57.0.12`), React Native 0.86, React Native Web. Entry is `re
 | `metadata.json` | 49 bytes |
 | `_headers` | 145 bytes |
 
-Six files. `index.html` is an empty `<div id="root">` plus a deferred script. The page requires JavaScript. The Worker script that proxies `/api` is separate from this directory. `npx wrangler deploy --dry-run --env=""` uploaded that script at 0.61 KiB gzip 0.36 KiB, with bindings `env.API` (`financial-agent-server`) and `env.ASSETS`.
+Six files. `index.html` is an empty `<div id="root">` plus a deferred script. The page requires JavaScript. The Worker script that proxies `/api` is separate from this directory. `npx wrangler deploy --dry-run --env=""` uploaded that script at 1.13 KiB gzip 0.56 KiB, with bindings `env.API` (`financial-agent-server`) and `env.ASSETS`. `--env dev` binds `financial-agent-server-mock`. `--env poc` binds `financial-agent-server-poc`.
 
 ## SSR and SPA fallback
 
@@ -29,7 +29,7 @@ Six files. `index.html` is an empty `<div id="root">` plus a deferred script. Th
 
 ## Same-origin API
 
-On web, the API base is the page's own origin. `POST /api/upload` and `POST /api/query` hit this Worker, which forwards them. Both fetches set `credentials: "include"`. On a same-origin request that is harmless: the browser sends the UI host's cookies, including the Access `CF_Authorization` cookie. Access then adds `Cf-Access-Jwt-Assertion` to the request the Worker sees. The Worker passes that `Request` to `env.API.fetch` unchanged, so the assertion header, method, body, and query string reach `financial-agent-server`. There is no app bearer token.
+On web, the API base is the page's own origin. `POST /api/upload` and `POST /api/query` hit this Worker, which forwards them. Both fetches set `credentials: "include"`. On a same-origin request that is harmless: the browser sends the UI host's cookies, including the Access `CF_Authorization` cookie. Access then adds `Cf-Access-Jwt-Assertion` to the request the Worker sees. The Worker builds a new request with the same method, URL, and body, and copies only `content-type`, `Cf-Access-Jwt-Assertion`, `cookie`, and `accept`. There is no app bearer token.
 
 `EXPO_PUBLIC_API_URL` changes only the browser's base:
 
@@ -38,7 +38,7 @@ On web, the API base is the page's own origin. `POST /api/upload` and `POST /api
 | unset, blank, or `/` | Same-origin. Requests are `/api/...`. This is the production default. |
 | `https://api.example.com/` | `https://api.example.com` (trailing slash removed). The browser calls that host directly and does not use the service binding. |
 
-`npm run export:web` rejects anything that is not empty, `/`, or an absolute `http`/`https` origin with no userinfo, path, query, or hash. It normalizes a valid origin with `URL.origin` before Metro inlines it. Native builds have no same-origin Worker: if the normalized value is empty, the app throws at startup and tells you to set `EXPO_PUBLIC_API_URL`.
+`npm run export:web` rejects anything that is not empty, `/`, or an absolute `http`/`https` origin with no userinfo, path, query, or hash. It normalizes a valid origin with `URL.origin` before Metro inlines it. Native builds have no same-origin Worker. If the normalized value is empty, the app shows an error screen instead of the chat. It does not throw while the module loads.
 
 Local web against the Express server on port 4000 still sets `EXPO_PUBLIC_API_URL=http://localhost:4000`. Local Android emulator: `http://10.0.2.2:4000`. Those are explicit. An empty production export does not call localhost.
 
@@ -52,6 +52,7 @@ Use one public hostname for the UI. Origins have no path and no trailing slash.
 | Browser API base | same origin, so `https://finance.example.com/api/upload` |
 | Service binding | name `API`, service `financial-agent-server` |
 | Poc override | `wrangler deploy --env poc` binds `API` to `financial-agent-server-poc` |
+| Local dev override | `wrangler dev --env dev` binds `API` to `financial-agent-server-mock` |
 
 `services` is not inherited by named environments, so `env.poc` in `wrangler.jsonc` sets that service name itself. `main` and `assets` are inherited. Dry-run of `--env poc` showed `env.API (financial-agent-server-poc)`.
 
@@ -59,26 +60,27 @@ When `EXPO_PUBLIC_API_URL` is a different origin, the browser calls it directly.
 
 ## Wrangler
 
-`wrangler.jsonc` sets `main` to `worker/index.ts`, `assets.directory` to `./dist`, `assets.binding` to `ASSETS`, and `assets.run_worker_first` to `["/api/*"]`. Static files, including the hashed bundles, never enter the script. `run_worker_first` is not `true`.
+`wrangler.jsonc` sets `main` to `worker/index.ts`, `assets.directory` to `./dist`, `assets.binding` to `ASSETS`, and `assets.run_worker_first` to `["/api", "/api/*"]`. The bare `/api` path is included so a request with no extra segment still hits the script. Static files, including the hashed bundles, never enter the script. `run_worker_first` is not `true`.
 
-`dev/mock-api/` is a local stand-in named `financial-agent-server`. It is not what `wrangler deploy` publishes. Start it, then the UI, so the dev registry connects the binding:
+`workers_dev` is false on the top-level config and on `env.dev`. Production is published on a hostname Access covers, not on `financial-agent-ui.<subdomain>.workers.dev`. `env.poc` sets `workers_dev` true because Access already covers `https://financial-agent-ui-poc.lausellduane.workers.dev`.
+
+`dev/mock-api/` is a local stand-in named `financial-agent-server-mock`. That name cannot replace the real API Worker if someone deploys the mock config. Only `env.dev` binds `API` to it. Start the mock, then the UI:
 
 ```bash
-npm run preview:api    # port 8788
-npm run preview:cf     # port 8787, wrangler dev --env=""
+npm run preview:api    # port 8788, service financial-agent-server-mock
+npm run preview:cf     # port 8787, wrangler dev --env dev
 ```
 
-Verified on 2026-11-04 with Wrangler 4.157.0:
+Checked after `npm ci` and `npm run export:web` on 2026-11-05:
 
-- `GET /` returned `index.html` with `200` and did not log `forward`.
-- `GET /unknown/path` returned `404` and did not log `forward`.
-- The hashed JS returned `200` with `Cache-Control: public, max-age=31536000, immutable` and did not log `forward`.
-- `POST /api/upload` and `POST /api/query?x=1` logged `forward`, and the mock received the method, path, query string, body, and `Cf-Access-Jwt-Assertion`.
-- The dev session reported `env.API (financial-agent-server)` as `local [connected]`.
-- Headless Chrome rendered "Secure Cash Management AI" with no runtime exceptions.
-- `npx wrangler deploy --dry-run --env=""` and `--env poc` exited without publishing.
+- Install finished, and `postinstall` patched `react-native-css@3.0.7` with no leftover temp files. A second run reported the files already patched.
+- The web bundle uses an empty API base and `credentials: "include"`.
+- `wrangler dev --env dev` reported `env.API (financial-agent-server-mock)` as `local [connected]`.
+- `GET /` returned `index.html` with `200`. `GET /unknown/path` returned `404`.
+- `GET /api` was forwarded. `POST /api/upload` arrived with `Cf-Access-Jwt-Assertion`, `cookie`, `accept`, `content-type`, and the body. An `X-Not-Forwarded` header did not.
+- `npx wrangler deploy --dry-run` for `--env=""`, `--env dev`, and `--env poc` exited without publishing.
 
-`public/_headers` is copied into `dist/` and is not served (`GET /_headers` is 404). Pass `--env=""` on the production deploy. Wrangler warns if you omit it, because `env.poc` also exists.
+`public/_headers` is copied into `dist/` and is not served (`GET /_headers` is 404). Pass `--env=""` on the production deploy. Wrangler warns if you omit it, because `env.dev` and `env.poc` also exist.
 
 ## Deploy command
 
@@ -94,7 +96,7 @@ npm run export:web
 npx wrangler deploy --env=""
 ```
 
-Poc: `npx wrangler deploy --env poc` after the same export. The first production deploy is `financial-agent-ui.<account-subdomain>.workers.dev` unless a route is added. Put Access on the hostname users open. The API Worker does not need its own public hostname for the default path.
+Poc: `npx wrangler deploy --env poc` after the same export. That enables `https://financial-agent-ui-poc.lausellduane.workers.dev`, which Access already covers. The top-level deploy does not enable `workers.dev`. Put the production UI on a route or custom hostname that Access covers. The API Worker does not need its own public hostname for the default path.
 
 `npm ci` runs `postinstall`, which tries the `react-native-css` patch and does not fail the install. `export:web` runs the same patch with `--strict` and fails the export if it cannot apply. Do not pass `--ignore-scripts`.
 
@@ -144,13 +146,17 @@ A preview deploy is `command: deploy --env poc` (or another env whose `services[
 
 ### Asset and Worker limits are not the constraint
 
-[Workers static asset limits](https://developers.cloudflare.com/workers/platform/limits/) are 25 MiB per file and 20,000 files on the free plan (100,000 on paid; Wrangler 4.34.0 or newer). This export is 6 files and the largest is 882 KiB. The proxy script is 0.61 KiB. The free-plan CPU limit applies only when the script runs, which is `/api/*`, not page views. `metadata.json` is Expo's export manifest. It has no secrets.
+[Workers static asset limits](https://developers.cloudflare.com/workers/platform/limits/) are 25 MiB per file and 20,000 files on the free plan (100,000 on paid; Wrangler 4.34.0 or newer). This export is 6 files and the largest is 882 KiB. The proxy script is 1.13 KiB. The free-plan CPU limit applies only when the script runs, which is `/api/*`, not page views. `metadata.json` is Expo's export manifest. It has no secrets.
 
 ### The web bundle crashes without a `react-native-css` patch
 
 NativeWind 5 pulls `react-native-css@3.0.7` (pinned exactly). That version rewrites `react-native-web`'s own imports and throws `Cannot read properties of undefined (reading 'default')` on `FlatList` before React renders. Same crash on any static host. Upstream: [nativewind/react-native-css#380](https://github.com/nativewind/react-native-css/issues/380). `3.1.0-rc.1` still has the bug.
 
-`scripts/patch-react-native-css-web.js` locates the package with `require.resolve`. It checks all five edits, then writes. A missing package, a version other than 3.0.7, or source that does not match is a warning and exit 0, so `npm install` still finishes. `export:web` passes `--strict` and fails instead of shipping the blank page. Remove the patch when the upstream issue is fixed.
+`scripts/patch-react-native-css-web.js` locates the package with `require.resolve`. It checks all five edits, then writes each file to a temp path in the same directory and renames it into place. A missing package, a version other than 3.0.7, or source that does not match is a warning and exit 0, so `npm install` still finishes. `export:web` passes `--strict` and fails instead of shipping the blank page. Remove the patch when the upstream issue is fixed.
+
+### Native apps cannot pass Cloudflare Access yet
+
+The web UI sends the Access cookie because the page and `/api` share a hostname. A native build has no `CF_Authorization` cookie and no `Cf-Access-Jwt-Assertion` header, so the same Worker answers those calls with Access's 401. Setting `EXPO_PUBLIC_API_URL` only chooses the host. It does not log the device in. The follow-up is an Access service token held on the server side of a small login exchange, or a native Access login flow that stores the application token and sends it on each request. Until one of those exists, ship the web UI and keep native builds off the Access-protected API.
 
 ### The API Worker is a separate deploy
 

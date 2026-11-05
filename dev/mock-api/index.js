@@ -1,5 +1,5 @@
-// Local stand-in for financial-agent-server. Not deployed.
-// `wrangler dev` discovers it by service name and the UI binding calls it.
+// Local stand-in. Name is financial-agent-server-mock so a deploy cannot
+// replace the real financial-agent-server Worker. The UI dev env binds it.
 export default {
   async fetch(request) {
     const body =
@@ -13,7 +13,10 @@ export default {
       pathname: url.pathname,
       search: url.search,
       assertion: request.headers.get("Cf-Access-Jwt-Assertion"),
+      cookie: request.headers.get("cookie"),
+      accept: request.headers.get("accept"),
       contentType: request.headers.get("content-type"),
+      stripped: request.headers.get("x-not-forwarded"),
       body,
     });
   },
