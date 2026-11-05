@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ScrollView, Alert, Platform } from "react-native";
 import { GluestackUIProvider } from "./components/ui/gluestack-ui-provider";
 import { Box } from "./components/ui/box";
@@ -23,12 +23,75 @@ const BACKEND_URL =
     ? ""
     : trimmedApiUrl.replace(/\/+$/, "");
 const missingNativeApiUrl = Platform.OS !== "web" && BACKEND_URL === "";
+const NO_REPORT = "No report loaded";
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function readCount(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function readDay(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
+}
+
+// GET /api/report: { loaded, count, startDate, endDate, uploadedAt }.
+// Missing or null fields stay off the status line.
+function formatReportStatus(body: unknown): string {
+  const record = asRecord(body);
+  if (!record || record.loaded !== true) return NO_REPORT;
+
+  const count = readCount(record.count);
+  if (count === undefined) return NO_REPORT;
+
+  const start = readDay(record.startDate);
+  const end = readDay(record.endDate);
+  const noun = count === 1 ? "transaction" : "transactions";
+  if (start && end) return `Report loaded: ${count} ${noun}, ${start}–${end}`;
+  if (start || end) return `Report loaded: ${count} ${noun}, ${start || end}`;
+  return `Report loaded: ${count} ${noun}`;
+}
+
+async function fetchReportStatus(): Promise<string> {
+  const response = await fetch(`${BACKEND_URL}/api/report`, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) return NO_REPORT;
+  return formatReportStatus(await response.json());
+}
 
 export default function App() {
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("No report loaded");
+  const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ role: string; text: string }[]>([]);
+
+  useEffect(() => {
+    if (missingNativeApiUrl) return;
+    let cancelled = false;
+    fetchReportStatus()
+      .then((next) => {
+        if (!cancelled) setStatus(next);
+      })
+      .catch(() => {
+        if (!cancelled) setStatus(NO_REPORT);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Securely upload and parse statements locally on Windows
   const handleFileUpload = async () => {
@@ -72,8 +135,12 @@ export default function App() {
         throw new Error(errData.error || "Ingestion pipeline failed");
       }
 
-      const data = await response.json();
-      setStatus(`Loaded: ${data.count} records cached securely.`);
+      await response.json().catch(() => undefined);
+      try {
+        setStatus(await fetchReportStatus());
+      } catch {
+        setStatus(NO_REPORT);
+      }
     } catch (err: any) {
       Alert.alert("Upload Error", err.message || "Could not upload report.");
     } finally {
@@ -118,10 +185,7 @@ export default function App() {
       <GluestackUIProvider>
         <Box className="flex-1 bg-background-50 p-6 pt-12">
           <VStack space="md" className="max-w-[600px] mx-auto w-full">
-            <Card
-              variant="elevated"
-              className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm"
-            >
+            <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
               <VStack space="xs">
                 <Text className="text-xl font-bold text-typography-900">
                   API address required
@@ -143,10 +207,7 @@ export default function App() {
       <Box className="flex-1 bg-background-50 p-6 pt-12">
         <VStack space="md" className="max-w-[600px] mx-auto w-full flex-1">
           {/* Top Panel Brand Status Card */}
-          <Card
-            variant="elevated"
-            className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm"
-          >
+          <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
             <VStack space="xs">
               <Text className="text-xl font-bold text-typography-900">
                 Secure Cash Management AI
