@@ -1,0 +1,87 @@
+# Do not merge until CLOUDFLARE_API_TOKEN (repository secret) and
+# CLOUDFLARE_ACCOUNT_ID (repository variable) are set, and Duane approves
+# enabling auto-deploy. Targets the existing POC Worker only.
+name: Deploy POC
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a live deploy mid-upload. Pull-request checks may be replaced.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      # npm test only covers report status. Export validates the production
+      # web build (strict CSS patch and expo export) and does not deploy.
+      # Leave EXPO_PUBLIC_API_URL unset so the bundle calls same-origin /api.
+      - name: Export web assets
+        run: npm run export:web
+
+  deploy:
+    name: Deploy financial-agent-ui-poc
+    needs: test
+    # Push or manual run on master only. A workflow_dispatch from another
+    # branch must not publish to the live POC Worker.
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Same-origin /api bundle. Do not set EXPO_PUBLIC_API_URL.
+      - name: Export web assets
+        run: npm run export:web
+
+      # --env poc publishes financial-agent-ui-poc, keeps workers.dev enabled
+      # (Access already covers that hostname), and binds API to
+      # financial-agent-server-poc. The top-level config has workers_dev: false
+      # and must not be used for this POC hostname.
+      # Uses the Wrangler version installed by npm ci (4.157.0 in the lockfile).
+      # Do not set wranglerVersion (that can install a different Wrangler) and
+      # do not pass secrets: (that runs wrangler secret put).
+      # CLOUDFLARE_ACCOUNT_ID is a repository variable (vars), not a secret.
+      - name: Deploy Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: npm
+          command: deploy --env poc
