@@ -16,12 +16,54 @@ function replacementCount(raw) {
   return count > 0 ? count : rows.length;
 }
 
+const exampleMonths = [
+  {
+    month: "2024-05",
+    label: "May 2024",
+    totalCents: 188400,
+    diningCents: 26100,
+    categories: [
+      { name: "Groceries", cents: 55000 },
+      { name: "Utilities", cents: 52000 },
+      { name: "Eating out", cents: 26100 },
+      { name: "Gas/auto", cents: 14800 },
+      { name: "Other", cents: 40500 },
+    ],
+    topMerchants: [
+      { name: "Sample Market", cents: 24000 },
+      { name: "Example Energy", cents: 18000 },
+      { name: "Demo Cafe", cents: 9000 },
+    ],
+    biggestPurchase: { name: "Example Energy", cents: 18000 },
+  },
+  {
+    month: "2024-06",
+    label: "Jun 2024",
+    totalCents: 198600,
+    diningCents: 31800,
+    categories: [
+      { name: "Groceries", cents: 58000 },
+      { name: "Utilities", cents: 54000 },
+      { name: "Eating out", cents: 31800 },
+      { name: "Gas/auto", cents: 15500 },
+      { name: "Other", cents: 39300 },
+    ],
+    topMerchants: [
+      { name: "Sample Market", cents: 26000 },
+      { name: "Example Energy", cents: 19000 },
+      { name: "Demo Cafe", cents: 8800 },
+    ],
+    biggestPurchase: { name: "Example Energy", cents: 19000 },
+  },
+];
+
 let report = {
   loaded: true,
   count: 128,
   startDate: "2024-01-03",
   endDate: "2024-06-28",
   uploadedAt: "2024-06-28T15:04:00.000Z",
+  months: exampleMonths,
 };
 
 export default {
@@ -39,6 +81,7 @@ export default {
         startDate: report.startDate,
         endDate: report.endDate,
         uploadedAt: new Date().toISOString(),
+        months: count > 0 ? exampleMonths : [],
       };
       return Response.json({ count });
     }

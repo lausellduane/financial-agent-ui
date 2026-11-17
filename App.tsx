@@ -9,8 +9,11 @@ import { Input, InputField } from "./components/ui/input";
 import { Button, ButtonText } from "./components/ui/button";
 import { Card } from "./components/ui/card";
 import { Spinner } from "./components/ui/spinner";
+import { QuickQuestions } from "./components/QuickQuestions";
+import { SpendingChart, type ChartState } from "./components/SpendingChart";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
+import { parseMonths, type MonthSpend } from "./chart-data";
 import {
   NO_REPORT,
   formatReportStatus,
@@ -52,7 +55,20 @@ export default function App() {
   const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
   const [chatLog, setChatLog] = useState<{ role: string; text: string }[]>([]);
+  const [months, setMonths] = useState<MonthSpend[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [chartState, setChartState] = useState<ChartState>(
+    missingNativeApiUrl ? "empty" : "loading",
+  );
   const reportRequestSeq = useRef(0);
+
+  function applyMonths(next: MonthSpend[]) {
+    setMonths(next);
+    setSelectedMonth((current) => {
+      if (current && next.some((month) => month.month === current)) return current;
+      return next.length ? next[next.length - 1]!.month : null;
+    });
+  }
 
   function applyReportCheck(
     seq: number,
@@ -62,9 +78,25 @@ export default function App() {
     if (seq !== reportRequestSeq.current) return;
     if (check.failed) {
       setStatus(statusForFailedReportCheck(check.httpStatus, uploadBody));
+      applyMonths([]);
+      setChartState(check.httpStatus === 401 ? "empty" : "error");
       return;
     }
     setStatus(formatReportStatus(check.body));
+    const nextMonths = parseMonths(check.body);
+    applyMonths(nextMonths);
+    const loaded =
+      !!check.body &&
+      typeof check.body === "object" &&
+      !Array.isArray(check.body) &&
+      (check.body as Record<string, unknown>).loaded === true;
+    setChartState(loaded ? "ready" : "empty");
+  }
+
+  async function refreshReport() {
+    const seq = ++reportRequestSeq.current;
+    setChartState("loading");
+    applyReportCheck(seq, await readReportCheck());
   }
 
   useEffect(() => {
@@ -88,6 +120,7 @@ export default function App() {
       if (result.canceled) return;
 
       setLoading(true);
+      setChartState("loading");
       const fileAsset = result.assets[0]; // Extract the first index item
       const formData = new FormData();
 
@@ -126,6 +159,7 @@ export default function App() {
       applyReportCheck(seq, await readReportCheck(), uploadBody);
     } catch (err: any) {
       Alert.alert("Upload Error", err.message || "Could not upload report.");
+      setChartState((current) => (current === "loading" ? (months.length ? "ready" : "empty") : current));
     } finally {
       setLoading(false);
     }
@@ -162,6 +196,14 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  function handleQuickAnswer(question: string, answer: string) {
+    setChatLog((prev) => [
+      ...prev,
+      { role: "user", text: question },
+      { role: "assistant", text: answer },
+    ]);
+  }
 
   if (missingNativeApiUrl) {
     return (
@@ -216,6 +258,16 @@ export default function App() {
             </ButtonText>
           </Button>
 
+          <SpendingChart
+            state={chartState}
+            months={months}
+            selectedMonth={selectedMonth}
+            onSelectMonth={setSelectedMonth}
+            onRetry={() => {
+              void refreshReport();
+            }}
+          />
+
           {/* Structured Chat History Logger */}
           <ScrollView className="flex-1 bg-white border border-outline-200 rounded-xl p-4 min-h-[300px]">
             <VStack space="sm" className="pb-4">
@@ -248,6 +300,13 @@ export default function App() {
               {loading && <Spinner size="small" className="self-center my-4" />}
             </VStack>
           </ScrollView>
+
+          <QuickQuestions
+            months={months}
+            selectedMonth={selectedMonth}
+            disabled={loading || chartState !== "ready"}
+            onAnswer={handleQuickAnswer}
+          />
 
           {/* Input Communication Dashboard Container */}
           <HStack space="sm" className="items-center pb-4">
