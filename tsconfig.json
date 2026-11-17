@@ -16,6 +16,7 @@
   ],
   "exclude": [
     "worker",
-    "report-status.test.ts"
+    "report-status.test.ts",
+    "chart-data.test.ts"
   ]
 }
