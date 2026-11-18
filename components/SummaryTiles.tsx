@@ -1,4 +1,5 @@
 import React from "react";
+import { Platform, type Role } from "react-native";
 import {
   formatDollars,
   monthChange,
@@ -8,6 +9,7 @@ import {
 } from "../chart-data";
 import type { ChartState } from "./SpendingChart";
 import { Box } from "./ui/box";
+import { Button, ButtonText } from "./ui/button";
 import { Text } from "./ui/text";
 import { VStack } from "./ui/vstack";
 
@@ -16,9 +18,15 @@ type SummaryTilesProps = {
   months: MonthSpend[];
   selectedMonth: string | null;
   columns: 2 | 4;
+  onRetry?: () => void;
 };
 
 type TileData = { label: string; value: string; detail: string };
+
+function webAria(label: string, role: Role) {
+  if (Platform.OS !== "web") return undefined;
+  return { role, "aria-label": label };
+}
 
 function tilesFor(
   state: ChartState,
@@ -83,35 +91,49 @@ export function SummaryTiles({
   months,
   selectedMonth,
   columns,
+  onRetry,
 }: SummaryTilesProps) {
   const tiles = tilesFor(state, months, selectedMonth);
   return (
-    <Box
-      accessibilityRole="summary"
-      accessibilityLabel="Month summary"
-      className="flex-row flex-wrap"
-      style={{ gap: 12 }}
-    >
-      {tiles.map((tile) => (
-        <VStack
-          key={tile.label}
-          space="xs"
-          className="bg-white border border-outline-100 rounded-xl p-3.5 shadow-sm"
-          style={{
-            flexGrow: 1,
-            flexBasis: columns === 4 ? "22%" : "46%",
-            minWidth: 120,
-          }}
+    <VStack space="sm">
+      <Box
+        accessibilityRole="summary"
+        accessibilityLabel="Month summary"
+        {...webAria("Month summary", "region")}
+        className="flex-row flex-wrap"
+        style={{ gap: 12 }}
+      >
+        {tiles.map((tile) => (
+          <VStack
+            key={tile.label}
+            space="xs"
+            className="bg-white border border-outline-100 rounded-xl p-3.5 shadow-sm"
+            style={{
+              flexGrow: 1,
+              flexBasis: columns === 4 ? "22%" : "46%",
+              minWidth: 120,
+            }}
+          >
+            <Text className="text-xs font-semibold text-typography-500">
+              {tile.label}
+            </Text>
+            <Text className="text-xl font-extrabold text-typography-900">
+              {tile.value}
+            </Text>
+            <Text className="text-xs text-typography-500">{tile.detail}</Text>
+          </VStack>
+        ))}
+      </Box>
+      {state === "error" && onRetry ? (
+        <Button
+          size="sm"
+          variant="default"
+          onPress={onRetry}
+          className="self-start rounded-xl bg-blue-500 text-white"
         >
-          <Text className="text-xs font-semibold text-typography-500">
-            {tile.label}
-          </Text>
-          <Text className="text-xl font-extrabold text-typography-900">
-            {tile.value}
-          </Text>
-          <Text className="text-xs text-typography-500">{tile.detail}</Text>
-        </VStack>
-      ))}
-    </Box>
+          <ButtonText className="font-semibold">Retry</ButtonText>
+        </Button>
+      ) : null}
+    </VStack>
   );
 }

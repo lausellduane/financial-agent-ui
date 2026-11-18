@@ -7,6 +7,8 @@ import {
   formatDollars,
   formatSignedDollars,
   lastThreeMonths,
+  latestMonthKey,
+  nextSelectedMonth,
   monthChange,
   parseMonths,
   previousMonthKey,
@@ -192,4 +194,22 @@ test("lastThreeMonths inserts a $0 bar for a missing calendar month", () => {
   );
   assert.equal(lastThreeMonths([january], "2026-01")[0]?.placeholder, true);
   assert.deepEqual(lastThreeMonths([], "2026-11"), []);
+});
+
+test("nextSelectedMonth jumps to the newest month when the latest key changes", () => {
+  const february: MonthSpend = { ...october, month: "2026-02", label: "Feb 2026" };
+  const march: MonthSpend = { ...november, month: "2026-03", label: "Mar 2026" };
+  assert.equal(latestMonthKey([february]), "2026-02");
+  assert.equal(nextSelectedMonth(null, [february], null), "2026-02");
+  assert.equal(nextSelectedMonth("2026-02", [february], "2026-02"), "2026-02");
+  assert.equal(
+    nextSelectedMonth("2026-02", [february, march], "2026-02"),
+    "2026-03",
+  );
+  assert.equal(
+    nextSelectedMonth("2026-02", [february, march], "2026-03"),
+    "2026-02",
+  );
+  assert.equal(nextSelectedMonth("2026-01", [february], "2026-02"), "2026-02");
+  assert.equal(nextSelectedMonth("2026-02", [], "2026-02"), null);
 });

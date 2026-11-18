@@ -287,3 +287,20 @@ export function priorMonth(
   if (key > earliest) return emptyMonth(key);
   return undefined;
 }
+
+export function latestMonthKey(months: MonthSpend[]): string | null {
+  return months.length ? months[months.length - 1]!.month : null;
+}
+
+// Jump to the newest month when an upload (or a fresh report) changes the
+// latest month key. Otherwise keep the user's selection if it is still present.
+export function nextSelectedMonth(
+  current: string | null,
+  months: MonthSpend[],
+  previousLatest: string | null,
+): string | null {
+  const latest = latestMonthKey(months);
+  if (latest && latest !== previousLatest) return latest;
+  if (current && months.some((month) => month.month === current)) return current;
+  return latest;
+}

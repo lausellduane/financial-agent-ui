@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable } from "react-native";
+import { Platform, Pressable, type Role } from "react-native";
 import {
   categoryDeltaCents,
   formatDollars,
@@ -16,6 +16,12 @@ import { Text } from "./ui/text";
 import { VStack } from "./ui/vstack";
 
 export type ChartState = "empty" | "loading" | "error" | "ready";
+
+function webAria(label: string, role: Role) {
+  if (Platform.OS !== "web") return undefined;
+  return { role, "aria-label": label };
+}
+
 
 type SpendingChartProps = {
   state: ChartState;
@@ -169,12 +175,15 @@ export function SpendingChart({
                       : delta === 0
                         ? `, no change vs ${prior?.label}`
                         : `, ${delta > 0 ? "up" : "down"} ${formatDollars(Math.abs(delta))} vs ${prior?.label}`;
+                  const barLabel = `${row.name} ${formatDollars(row.cents)}${deltaLabel}`;
                   return (
                     <VStack
                       key={row.name}
                       space="xs"
                       accessible
-                      accessibilityLabel={`${row.name} ${formatDollars(row.cents)}${deltaLabel}`}
+                      accessibilityRole="text"
+                      accessibilityLabel={barLabel}
+                      {...webAria(barLabel, "img")}
                     >
                       <HStack className="items-baseline justify-between gap-2">
                         <Text className="text-sm font-medium text-typography-900 flex-1">

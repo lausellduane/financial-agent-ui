@@ -26,7 +26,7 @@ import { SummaryTiles } from "./components/SummaryTiles";
 import { TopMerchantsCard } from "./components/TopMerchantsCard";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
-import { parseMonths, type MonthSpend } from "./chart-data";
+import { latestMonthKey, nextSelectedMonth, parseMonths, type MonthSpend } from "./chart-data";
 import { isNearBottom, nextForceScrollFlag, shouldAutoScroll } from "./chat-scroll";
 
 import {
@@ -164,6 +164,7 @@ function Dashboard({
         months={months}
         selectedMonth={selectedMonth}
         columns={fourTiles ? 4 : 2}
+        onRetry={onRetry}
       />
 
       <Box
@@ -216,11 +217,16 @@ function Dashboard({
 }
 
 function AppLayout() {
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isWide = width >= 1000;
   const isCompact = width < 700;
-  const chatWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
+  const isShort = height < 800;
+  // Reserve the 24px right gutter so the visible chat card stays >= 340px
+  // at a 1000px layout width.
+  const chatGutter = 24;
+  const chatCardWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
+  const chatWidth = chatCardWidth + chatGutter;
   const keyboardBehavior = Platform.OS === "web" ? undefined : "padding";
   const keyboardVerticalOffset = 0;
   const [loading, setLoading] = useState(false);
@@ -229,6 +235,7 @@ function AppLayout() {
   const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
   const [months, setMonths] = useState<MonthSpend[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const latestMonthRef = useRef<string | null>(null);
   const [chartState, setChartState] = useState<ChartState>(
     missingNativeApiUrl ? "empty" : "loading",
   );
@@ -298,11 +305,12 @@ function AppLayout() {
   }
 
   function applyMonths(next: MonthSpend[]) {
+    const previousLatest = latestMonthRef.current;
+    latestMonthRef.current = latestMonthKey(next);
     setMonths(next);
-    setSelectedMonth((current) => {
-      if (current && next.some((month) => month.month === current)) return current;
-      return next.length ? next[next.length - 1]!.month : null;
-    });
+    setSelectedMonth((current) =>
+      nextSelectedMonth(current, next, previousLatest),
+    );
   }
 
   function applyReportCheck(
@@ -498,7 +506,7 @@ function AppLayout() {
       months={months}
       selectedMonth={selectedMonth}
       disabled={loading || chartState !== "ready"}
-      horizontal={isCompact}
+      horizontal={isCompact || isShort}
       onAnswer={handleQuickAnswer}
     />
   );
