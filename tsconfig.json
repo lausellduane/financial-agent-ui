@@ -17,6 +17,7 @@
   "exclude": [
     "worker",
     "report-status.test.ts",
-    "chart-data.test.ts"
+    "chart-data.test.ts",
+    "chat-scroll.test.ts"
   ]
 }

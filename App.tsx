@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -26,6 +27,8 @@ import { TopMerchantsCard } from "./components/TopMerchantsCard";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
 import { parseMonths, type MonthSpend } from "./chart-data";
+import { isNearBottom, shouldAutoScroll } from "./chat-scroll";
+
 import {
   NO_REPORT,
   formatReportStatus,
@@ -235,13 +238,47 @@ function AppLayout() {
   const scrollOffsetRef = useRef(0);
   const contentHeightRef = useRef(0);
   const layoutHeightRef = useRef(0);
+  const forceScrollRef = useRef(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
-  function isNearBottom() {
-    const layoutHeight = layoutHeightRef.current;
-    if (layoutHeight === 0) return isWide;
-    return (
-      contentHeightRef.current - (scrollOffsetRef.current + layoutHeight) <= 80
+  function nearBottom() {
+    return isNearBottom(
+      contentHeightRef.current,
+      scrollOffsetRef.current,
+      layoutHeightRef.current,
+      isWide,
     );
+  }
+
+  function scrollToLatest() {
+    chatScrollRef.current?.scrollToEnd({ animated: true });
+    if (layoutHeightRef.current > 0) {
+      scrollOffsetRef.current = Math.max(
+        0,
+        contentHeightRef.current - layoutHeightRef.current,
+      );
+    }
+  }
+
+  function maybeScrollChat(appended: boolean, contentGrew: boolean) {
+    if (
+      !shouldAutoScroll({
+        force: forceScrollRef.current,
+        appended,
+        contentGrew,
+        nearBottom: nearBottom(),
+      })
+    ) {
+      return;
+    }
+    scrollToLatest();
+    if (appended) forceScrollRef.current = false;
+  }
+
+  function handleContentSizeChange(_width: number, height: number) {
+    const grew = height > contentHeightRef.current;
+    contentHeightRef.current = height;
+    maybeScrollChat(false, grew);
   }
 
   function recordScrollMetrics(event: {
@@ -307,11 +344,31 @@ function AppLayout() {
   }, []);
 
   useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardOpen(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardOpen(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    scrollOffsetRef.current = 0;
+    contentHeightRef.current = 0;
+    layoutHeightRef.current = 0;
+  }, [isWide]);
+
+  useEffect(() => {
     const previousLength = chatLogLengthRef.current;
     const appended = chatLog.length > previousLength;
     chatLogLengthRef.current = chatLog.length;
-    if (!appended || !isNearBottom()) return;
-    chatScrollRef.current?.scrollToEnd({ animated: true });
+    maybeScrollChat(appended, false);
   }, [chatLog.length, isWide]);
 
   const handleFileUpload = async () => {
@@ -371,6 +428,7 @@ function AppLayout() {
 
     const userQuery = query;
     setQuery("");
+    if (!isWide) forceScrollRef.current = true;
     setChatLog((prev) => [...prev, { role: "user", text: userQuery }]);
     setLoading(true);
 
@@ -398,6 +456,7 @@ function AppLayout() {
   };
 
   function handleQuickAnswer(question: string, answer: string) {
+    if (!isWide) forceScrollRef.current = true;
     setChatLog((prev) => [
       ...prev,
       { role: "user", text: question },
@@ -490,7 +549,7 @@ function AppLayout() {
               width: chatWidth,
               paddingTop: 24,
               paddingRight: 24,
-              paddingBottom: Math.max(24, insets.bottom),
+              paddingBottom: keyboardOpen ? 24 : Math.max(24, insets.bottom),
             }}
             className="min-h-0"
           >
@@ -511,9 +570,7 @@ function AppLayout() {
                   accessibilityLabel="Chat messages"
                   scrollEventThrottle={16}
                   onScroll={recordScrollMetrics}
-                  onContentSizeChange={(_width, height) => {
-                    contentHeightRef.current = height;
-                  }}
+                  onContentSizeChange={handleContentSizeChange}
                   onLayout={(event) => {
                     layoutHeightRef.current = event.nativeEvent.layout.height;
                   }}
@@ -550,9 +607,7 @@ function AppLayout() {
           }}
           scrollEventThrottle={16}
           onScroll={recordScrollMetrics}
-          onContentSizeChange={(_width, height) => {
-            contentHeightRef.current = height;
-          }}
+          onContentSizeChange={handleContentSizeChange}
           onLayout={(event) => {
             layoutHeightRef.current = event.nativeEvent.layout.height;
           }}
@@ -570,7 +625,7 @@ function AppLayout() {
         </ScrollView>
         <Box
           className="border-t border-outline-100 bg-white px-4 pt-3"
-          style={{ paddingBottom: Math.max(12, insets.bottom) }}
+          style={{ paddingBottom: keyboardOpen ? 12 : Math.max(12, insets.bottom) }}
         >
           <VStack space="sm">
             {questions}

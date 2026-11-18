@@ -164,6 +164,10 @@ test("priorMonth treats a missing calendar month after the first report month as
   assert.equal(change.detail, "more than Oct 2026 ($0.00)");
   assert.equal(priorMonth([september, november], "2026-09"), undefined);
   assert.equal(priorMonth([november], "2026-11"), undefined);
+  assert.equal(
+    eatingOutAnswer([september, november], "2026-11"),
+    "Eating out: $318.00 in Nov 2026 vs $0.00 in Oct 2026 (up $318.00).",
+  );
 });
 
 test("lastThreeMonths inserts a $0 bar for a missing calendar month", () => {

@@ -156,7 +156,7 @@ export function topMerchantsAnswer(month: MonthSpend): string {
 export function eatingOutAnswer(months: MonthSpend[], month: string): string {
   const current = months.find((row) => row.month === month);
   if (!current) return "No spending data is loaded for that month.";
-  const prior = months.find((row) => row.month === previousMonthKey(month));
+  const prior = priorMonth(months, month);
   const currentAmount = formatDollars(current.diningCents);
   if (!prior) {
     return `Eating out: ${currentAmount} in ${current.label}. No prior-month data to compare.`;
