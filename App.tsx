@@ -218,9 +218,8 @@ function AppLayout() {
   const isWide = width >= 1000;
   const isCompact = width < 700;
   const chatWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
-  const keyboardBehavior =
-    Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined;
-  const keyboardVerticalOffset = Platform.OS === "ios" ? insets.top : 0;
+  const keyboardBehavior = Platform.OS === "ios" ? "padding" : undefined;
+  const keyboardVerticalOffset = 0;
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
@@ -232,6 +231,31 @@ function AppLayout() {
   );
   const reportRequestSeq = useRef(0);
   const chatScrollRef = useRef<ScrollView>(null);
+  const chatLogLengthRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+
+  function isNearBottom() {
+    const layoutHeight = layoutHeightRef.current;
+    if (layoutHeight === 0) return isWide;
+    return (
+      contentHeightRef.current - (scrollOffsetRef.current + layoutHeight) <= 80
+    );
+  }
+
+  function recordScrollMetrics(event: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      contentSize: { height: number };
+      layoutMeasurement: { height: number };
+    };
+  }) {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    scrollOffsetRef.current = contentOffset.y;
+    contentHeightRef.current = contentSize.height;
+    layoutHeightRef.current = layoutMeasurement.height;
+  }
 
   function applyMonths(next: MonthSpend[]) {
     setMonths(next);
@@ -281,6 +305,14 @@ function AppLayout() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const previousLength = chatLogLengthRef.current;
+    const appended = chatLog.length > previousLength;
+    chatLogLengthRef.current = chatLog.length;
+    if (!appended || !isNearBottom()) return;
+    chatScrollRef.current?.scrollToEnd({ animated: true });
+  }, [chatLog.length, isWide]);
 
   const handleFileUpload = async () => {
     try {
@@ -477,8 +509,13 @@ function AppLayout() {
                   className="flex-1 min-h-0"
                   contentContainerStyle={{ padding: 16, flexGrow: 1 }}
                   accessibilityLabel="Chat messages"
-                  onContentSizeChange={() => {
-                    chatScrollRef.current?.scrollToEnd({ animated: true });
+                  scrollEventThrottle={16}
+                  onScroll={recordScrollMetrics}
+                  onContentSizeChange={(_width, height) => {
+                    contentHeightRef.current = height;
+                  }}
+                  onLayout={(event) => {
+                    layoutHeightRef.current = event.nativeEvent.layout.height;
                   }}
                 >
                   <ChatMessages messages={chatLog} loading={loading} />
@@ -511,10 +548,13 @@ function AppLayout() {
             gap: isCompact ? 16 : 24,
             paddingBottom: 16,
           }}
-          onContentSizeChange={() => {
-            if (chatLog.length > 0) {
-              chatScrollRef.current?.scrollToEnd({ animated: true });
-            }
+          scrollEventThrottle={16}
+          onScroll={recordScrollMetrics}
+          onContentSizeChange={(_width, height) => {
+            contentHeightRef.current = height;
+          }}
+          onLayout={(event) => {
+            layoutHeightRef.current = event.nativeEvent.layout.height;
           }}
         >
           {dashboard}

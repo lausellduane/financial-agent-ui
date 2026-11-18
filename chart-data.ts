@@ -277,7 +277,13 @@ export function priorMonth(
   months: MonthSpend[],
   selectedMonth: string | null,
 ): MonthSpend | undefined {
-  if (!selectedMonth) return undefined;
+  if (!selectedMonth || !months.length) return undefined;
   const key = previousMonthKey(selectedMonth);
-  return months.find((row) => row.month === key);
+  const found = months.find((row) => row.month === key);
+  if (found) return found;
+  const earliest = months.reduce((a, b) => (a.month < b.month ? a : b)).month;
+  // A missing calendar month after the first report month is a $0 gap, the
+  // same kind of placeholder the three-month trend shows.
+  if (key > earliest) return emptyMonth(key);
+  return undefined;
 }

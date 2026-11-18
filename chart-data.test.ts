@@ -148,7 +148,22 @@ test("month change, top category, and last-three-month helpers", () => {
     ],
   );
   assert.equal(priorMonth([september, october, november], "2026-11")?.month, "2026-10");
+  assert.equal(priorMonth([september, october, november], "2026-11")?.placeholder, undefined);
   assert.equal(priorMonth([september, october, november], "2026-09"), undefined);
+});
+
+test("priorMonth treats a missing calendar month after the first report month as $0", () => {
+  const prior = priorMonth([september, november], "2026-11");
+  assert.equal(prior?.month, "2026-10");
+  assert.equal(prior?.label, "Oct 2026");
+  assert.equal(prior?.totalCents, 0);
+  assert.equal(prior?.placeholder, true);
+  const change = monthChange(november, prior);
+  assert.equal(change.deltaCents, 208600);
+  assert.equal(change.headline, "+$2,086.00");
+  assert.equal(change.detail, "more than Oct 2026 ($0.00)");
+  assert.equal(priorMonth([september, november], "2026-09"), undefined);
+  assert.equal(priorMonth([november], "2026-11"), undefined);
 });
 
 test("lastThreeMonths inserts a $0 bar for a missing calendar month", () => {
