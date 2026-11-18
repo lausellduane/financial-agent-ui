@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   biggestPurchaseAnswer,
+  categoryDeltaCents,
   eatingOutAnswer,
   formatDollars,
+  formatSignedDollars,
+  lastThreeMonths,
+  monthChange,
   parseMonths,
   previousMonthKey,
+  priorMonth,
+  topCategory,
   topMerchantsAnswer,
   totalSpentAnswer,
   type MonthSpend,
@@ -87,4 +93,52 @@ test("quick-question answers use the selected month and prior calendar month", (
     biggestPurchaseAnswer({ ...november, biggestPurchase: null }),
     "No purchases were found in Nov 2026.",
   );
+});
+
+const september: MonthSpend = {
+  month: "2026-09",
+  label: "Sep 2026",
+  totalCents: 188400,
+  diningCents: 26100,
+  categories: [
+    { name: "Groceries", cents: 55000 },
+    { name: "Eating out", cents: 26100 },
+  ],
+  topMerchants: [],
+  biggestPurchase: { name: "Example Energy", cents: 18000 },
+};
+
+test("month change, top category, and last-three-month helpers", () => {
+  assert.equal(formatSignedDollars(10000), "+$100.00");
+  assert.equal(formatSignedDollars(-10200), "−$102.00");
+  assert.equal(formatSignedDollars(0), "±$0.00");
+
+  const change = monthChange(november, october);
+  assert.equal(change.deltaCents, 10000);
+  assert.equal(change.percent, 5.0);
+  assert.equal(change.headline, "+$100.00 (+5.0%)");
+  assert.equal(change.detail, "more than Oct 2026 ($1,986.00)");
+  assert.equal(monthChange(november, undefined).detail, "No earlier month in this report");
+  assert.equal(
+    monthChange(november, { ...october, totalCents: 208600 }).headline,
+    "±$0.00 (0.0%)",
+  );
+
+  const top = topCategory(november);
+  assert.deepEqual(top, { name: "Groceries", cents: 61200, share: 29.3 });
+  assert.equal(topCategory({ ...november, categories: [{ name: "Other", cents: 100 }] }), null);
+
+  assert.equal(categoryDeltaCents(november, october, "Eating out"), 5700);
+  assert.equal(categoryDeltaCents(november, undefined, "Eating out"), null);
+
+  assert.deepEqual(
+    lastThreeMonths([september, october, november], "2026-11").map((row) => row.month),
+    ["2026-09", "2026-10", "2026-11"],
+  );
+  assert.deepEqual(
+    lastThreeMonths([september, october, november], "2026-10").map((row) => row.month),
+    ["2026-09", "2026-10"],
+  );
+  assert.equal(priorMonth([september, october, november], "2026-11")?.month, "2026-10");
+  assert.equal(priorMonth([september, october, november], "2026-09"), undefined);
 });

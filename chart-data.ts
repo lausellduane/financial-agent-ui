@@ -147,3 +147,94 @@ export function biggestPurchaseAnswer(month: MonthSpend): string {
   }
   return `Biggest purchase in ${month.label}: ${month.biggestPurchase.name} ${formatDollars(month.biggestPurchase.cents)}.`;
 }
+
+export function formatSignedDollars(cents: number): string {
+  if (cents === 0) return "±$0.00";
+  const sign = cents > 0 ? "+" : "−";
+  return `${sign}${formatDollars(Math.abs(cents))}`;
+}
+
+export type MonthChange = {
+  deltaCents: number;
+  percent: number | null;
+  headline: string;
+  detail: string;
+};
+
+export function monthChange(
+  current: MonthSpend,
+  prior: MonthSpend | undefined,
+): MonthChange {
+  if (!prior) {
+    return {
+      deltaCents: 0,
+      percent: null,
+      headline: "—",
+      detail: "No earlier month in this report",
+    };
+  }
+  const deltaCents = current.totalCents - prior.totalCents;
+  const percent =
+    prior.totalCents !== 0
+      ? Math.round((deltaCents / prior.totalCents) * 1000) / 10
+      : null;
+  const pctText =
+    percent === null ? "" : ` (${percent > 0 ? "+" : ""}${percent.toFixed(1)}%)`;
+  const word =
+    deltaCents > 0 ? "more than" : deltaCents < 0 ? "less than" : "same as";
+  return {
+    deltaCents,
+    percent,
+    headline: `${formatSignedDollars(deltaCents)}${pctText}`,
+    detail: `${word} ${prior.label} (${formatDollars(prior.totalCents)})`,
+  };
+}
+
+export type TopCategory = {
+  name: string;
+  cents: number;
+  share: number;
+};
+
+export function topCategory(month: MonthSpend): TopCategory | null {
+  const rows = month.categories.filter((row) => row.name !== "Other");
+  if (!rows.length) return null;
+  const top = rows.reduce((best, row) => (row.cents > best.cents ? row : best));
+  const share =
+    month.totalCents !== 0
+      ? Math.round((top.cents / month.totalCents) * 1000) / 10
+      : 0;
+  return { name: top.name, cents: top.cents, share };
+}
+
+export function categoryDeltaCents(
+  current: MonthSpend,
+  prior: MonthSpend | undefined,
+  name: string,
+): number | null {
+  if (!prior) return null;
+  const currentCents =
+    current.categories.find((row) => row.name === name)?.cents ?? 0;
+  const priorCents = prior.categories.find((row) => row.name === name)?.cents ?? 0;
+  return currentCents - priorCents;
+}
+
+export function lastThreeMonths(
+  months: MonthSpend[],
+  selectedMonth: string | null,
+): MonthSpend[] {
+  const index = selectedMonth
+    ? months.findIndex((row) => row.month === selectedMonth)
+    : months.length - 1;
+  if (index < 0) return months.slice(-3);
+  return months.slice(Math.max(0, index - 2), index + 1);
+}
+
+export function priorMonth(
+  months: MonthSpend[],
+  selectedMonth: string | null,
+): MonthSpend | undefined {
+  if (!selectedMonth) return undefined;
+  const key = previousMonthKey(selectedMonth);
+  return months.find((row) => row.month === key);
+}
