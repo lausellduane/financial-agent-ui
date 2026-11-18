@@ -100,7 +100,7 @@ export function SummaryTiles({
           style={{
             flexGrow: 1,
             flexBasis: columns === 4 ? "22%" : "46%",
-            minWidth: columns === 4 ? 140 : 140,
+            minWidth: 120,
           }}
         >
           <Text className="text-xs font-semibold text-typography-500">

@@ -6,6 +6,10 @@ import {
   ScrollView,
   useWindowDimensions,
 } from "react-native";
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { GluestackUIProvider } from "./components/ui/gluestack-ui-provider";
 import { Box } from "./components/ui/box";
 import { VStack } from "./components/ui/vstack";
@@ -188,13 +192,19 @@ function Dashboard({
             style={!insightsRow && !sideBySide ? { marginBottom: 24 } : undefined}
           >
             <MonthTrend
+              state={chartState}
               months={months}
               selectedMonth={selectedMonth}
               onSelectMonth={onSelectMonth}
+              onRetry={onRetry}
             />
           </Box>
           <Box className={sideBySide ? "flex-1 min-w-0" : "w-full"}>
-            <TopMerchantsCard month={current} />
+            <TopMerchantsCard
+              state={chartState}
+              month={current}
+              onRetry={onRetry}
+            />
           </Box>
         </Box>
       </Box>
@@ -202,11 +212,15 @@ function Dashboard({
   );
 }
 
-export default function App() {
+function AppLayout() {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isWide = width >= 1000;
   const isCompact = width < 700;
   const chatWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
+  const keyboardBehavior =
+    Platform.OS === "ios" ? "padding" : Platform.OS === "android" ? "height" : undefined;
+  const keyboardVerticalOffset = Platform.OS === "ios" ? insets.top : 0;
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
@@ -217,6 +231,7 @@ export default function App() {
     missingNativeApiUrl ? "empty" : "loading",
   );
   const reportRequestSeq = useRef(0);
+  const chatScrollRef = useRef<ScrollView>(null);
 
   function applyMonths(next: MonthSpend[]) {
     setMonths(next);
@@ -235,7 +250,7 @@ export default function App() {
     if (check.failed) {
       setStatus(statusForFailedReportCheck(check.httpStatus, uploadBody));
       applyMonths([]);
-      setChartState(check.httpStatus === 401 ? "empty" : "error");
+      setChartState("error");
       return;
     }
     setStatus(formatReportStatus(check.body));
@@ -399,8 +414,10 @@ export default function App() {
 
   if (missingNativeApiUrl) {
     return (
-      <GluestackUIProvider>
-        <Box className="flex-1 bg-background-50 p-6 pt-12">
+      <Box
+        className="flex-1 bg-background-50 p-6"
+        style={{ paddingTop: Math.max(24, insets.top) }}
+      >
           <VStack space="md" className="max-w-[600px] mx-auto w-full">
             <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
               <VStack space="xs">
@@ -414,22 +431,37 @@ export default function App() {
               </VStack>
             </Card>
           </VStack>
-        </Box>
-      </GluestackUIProvider>
+      </Box>
     );
   }
 
   if (isWide) {
     return (
-      <GluestackUIProvider>
-        <Box className="flex-1 flex-row min-h-0 bg-background-50">
+      <KeyboardAvoidingView
+        className="flex-1 bg-background-50"
+        style={{ flex: 1 }}
+        behavior={keyboardBehavior}
+        keyboardVerticalOffset={keyboardVerticalOffset}
+      >
+        <Box
+          className="flex-1 flex-row min-h-0"
+          style={{ paddingTop: insets.top }}
+        >
           <ScrollView
             className="flex-1 min-h-0"
             contentContainerStyle={{ padding: 24, gap: 24, flexGrow: 1 }}
           >
             {dashboard}
           </ScrollView>
-          <Box style={{ width: chatWidth }} className="py-6 pr-6 min-h-0">
+          <Box
+            style={{
+              width: chatWidth,
+              paddingTop: 24,
+              paddingRight: 24,
+              paddingBottom: Math.max(24, insets.bottom),
+            }}
+            className="min-h-0"
+          >
             <Card className="flex-1 min-h-0 bg-white border border-outline-100 rounded-xl shadow-sm overflow-hidden">
               <VStack className="flex-1 min-h-0">
                 <Box className="px-5 pt-4 pb-3 border-b border-outline-100">
@@ -441,9 +473,13 @@ export default function App() {
                   </Text>
                 </Box>
                 <ScrollView
+                  ref={chatScrollRef}
                   className="flex-1 min-h-0"
                   contentContainerStyle={{ padding: 16, flexGrow: 1 }}
                   accessibilityLabel="Chat messages"
+                  onContentSizeChange={() => {
+                    chatScrollRef.current?.scrollToEnd({ animated: true });
+                  }}
                 >
                   <ChatMessages messages={chatLog} loading={loading} />
                 </ScrollView>
@@ -455,45 +491,63 @@ export default function App() {
             </Card>
           </Box>
         </Box>
-      </GluestackUIProvider>
+      </KeyboardAvoidingView>
     );
   }
 
   return (
-    <GluestackUIProvider>
-      <KeyboardAvoidingView
-        className="flex-1 bg-background-50"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1 }}
-      >
-        <Box className="flex-1 min-h-0">
-          <ScrollView
-            className="flex-1 min-h-0"
-            contentContainerStyle={{
-              padding: isCompact ? 16 : 24,
-              gap: isCompact ? 16 : 24,
-              paddingBottom: 16,
-            }}
-          >
-            {dashboard}
-            <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm mt-6">
-              <Text className="text-base font-bold text-typography-900 mb-1">
-                Ask about your spending
-              </Text>
-              <Text className="text-sm text-typography-500 font-medium mb-3">
-                Answers use the loaded report
-              </Text>
-              <ChatMessages messages={chatLog} loading={loading} />
-            </Card>
-          </ScrollView>
-          <Box className="border-t border-outline-100 bg-white px-4 py-3">
-            <VStack space="sm">
-              {questions}
-              {composer}
-            </VStack>
-          </Box>
+    <KeyboardAvoidingView
+      className="flex-1 bg-background-50"
+      style={{ flex: 1 }}
+      behavior={keyboardBehavior}
+      keyboardVerticalOffset={keyboardVerticalOffset}
+    >
+      <Box className="flex-1 min-h-0" style={{ paddingTop: insets.top }}>
+        <ScrollView
+          ref={chatScrollRef}
+          className="flex-1 min-h-0"
+          contentContainerStyle={{
+            padding: isCompact ? 16 : 24,
+            gap: isCompact ? 16 : 24,
+            paddingBottom: 16,
+          }}
+          onContentSizeChange={() => {
+            if (chatLog.length > 0) {
+              chatScrollRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
+        >
+          {dashboard}
+          <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm mt-6">
+            <Text className="text-base font-bold text-typography-900 mb-1">
+              Ask about your spending
+            </Text>
+            <Text className="text-sm text-typography-500 font-medium mb-3">
+              Answers use the loaded report
+            </Text>
+            <ChatMessages messages={chatLog} loading={loading} />
+          </Card>
+        </ScrollView>
+        <Box
+          className="border-t border-outline-100 bg-white px-4 pt-3"
+          style={{ paddingBottom: Math.max(12, insets.bottom) }}
+        >
+          <VStack space="sm">
+            {questions}
+            {composer}
+          </VStack>
         </Box>
-      </KeyboardAvoidingView>
-    </GluestackUIProvider>
+      </Box>
+    </KeyboardAvoidingView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <GluestackUIProvider>
+        <AppLayout />
+      </GluestackUIProvider>
+    </SafeAreaProvider>
   );
 }

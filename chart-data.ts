@@ -16,6 +16,7 @@ export type MonthSpend = {
   topMerchants: MerchantSpend[];
   biggestPurchase: MerchantSpend | null;
   diningCents: number;
+  placeholder?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -45,11 +46,46 @@ function readNamedCents(value: unknown): MerchantSpend | undefined {
   return { name, cents };
 }
 
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 export function previousMonthKey(month: string): string {
   const year = Number(month.slice(0, 4));
   const number = Number(month.slice(5, 7));
   if (number === 1) return `${year - 1}-12`;
   return `${year}-${String(number - 1).padStart(2, "0")}`;
+}
+
+export function monthLabel(month: string): string {
+  const year = month.slice(0, 4);
+  const index = Number(month.slice(5, 7)) - 1;
+  const name = MONTH_NAMES[index];
+  return name ? `${name} ${year}` : month;
+}
+
+function emptyMonth(month: string): MonthSpend {
+  return {
+    month,
+    label: monthLabel(month),
+    totalCents: 0,
+    diningCents: 0,
+    categories: [],
+    topMerchants: [],
+    biggestPurchase: null,
+    placeholder: true,
+  };
 }
 
 export function parseMonths(body: unknown): MonthSpend[] {
@@ -223,11 +259,18 @@ export function lastThreeMonths(
   months: MonthSpend[],
   selectedMonth: string | null,
 ): MonthSpend[] {
-  const index = selectedMonth
-    ? months.findIndex((row) => row.month === selectedMonth)
-    : months.length - 1;
-  if (index < 0) return months.slice(-3);
-  return months.slice(Math.max(0, index - 2), index + 1);
+  if (!months.length) return [];
+  const endKey =
+    selectedMonth && months.some((row) => row.month === selectedMonth)
+      ? selectedMonth
+      : months[months.length - 1]!.month;
+  const keys = [
+    previousMonthKey(previousMonthKey(endKey)),
+    previousMonthKey(endKey),
+    endKey,
+  ];
+  const byKey = new Map(months.map((row) => [row.month, row]));
+  return keys.map((key) => byKey.get(key) ?? emptyMonth(key));
 }
 
 export function priorMonth(

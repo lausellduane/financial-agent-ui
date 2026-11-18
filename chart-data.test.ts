@@ -136,9 +136,41 @@ test("month change, top category, and last-three-month helpers", () => {
     ["2026-09", "2026-10", "2026-11"],
   );
   assert.deepEqual(
-    lastThreeMonths([september, october, november], "2026-10").map((row) => row.month),
-    ["2026-09", "2026-10"],
+    lastThreeMonths([september, october, november], "2026-10").map((row) => ({
+      month: row.month,
+      totalCents: row.totalCents,
+      placeholder: row.placeholder ?? false,
+    })),
+    [
+      { month: "2026-08", totalCents: 0, placeholder: true },
+      { month: "2026-09", totalCents: 188400, placeholder: false },
+      { month: "2026-10", totalCents: 198600, placeholder: false },
+    ],
   );
   assert.equal(priorMonth([september, october, november], "2026-11")?.month, "2026-10");
   assert.equal(priorMonth([september, october, november], "2026-09"), undefined);
+});
+
+test("lastThreeMonths inserts a $0 bar for a missing calendar month", () => {
+  const rows = lastThreeMonths([september, november], "2026-11");
+  assert.deepEqual(
+    rows.map((row) => ({
+      month: row.month,
+      label: row.label,
+      totalCents: row.totalCents,
+      placeholder: row.placeholder ?? false,
+    })),
+    [
+      { month: "2026-09", label: "Sep 2026", totalCents: 188400, placeholder: false },
+      { month: "2026-10", label: "Oct 2026", totalCents: 0, placeholder: true },
+      { month: "2026-11", label: "Nov 2026", totalCents: 208600, placeholder: false },
+    ],
+  );
+  const january: MonthSpend = { ...september, month: "2026-01", label: "Jan 2026" };
+  assert.deepEqual(
+    lastThreeMonths([january], "2026-01").map((row) => row.month),
+    ["2025-11", "2025-12", "2026-01"],
+  );
+  assert.equal(lastThreeMonths([january], "2026-01")[0]?.placeholder, true);
+  assert.deepEqual(lastThreeMonths([], "2026-11"), []);
 });

@@ -1,15 +1,26 @@
 import React from "react";
 import { formatDollars, type MonthSpend } from "../chart-data";
+import type { ChartState } from "./SpendingChart";
+import { Button, ButtonText } from "./ui/button";
 import { Card } from "./ui/card";
 import { HStack } from "./ui/hstack";
 import { Text } from "./ui/text";
 import { VStack } from "./ui/vstack";
 
 type TopMerchantsCardProps = {
+  state: ChartState;
   month: MonthSpend | undefined;
+  onRetry?: () => void;
 };
 
-export function TopMerchantsCard({ month }: TopMerchantsCardProps) {
+export function TopMerchantsCard({ state, month, onRetry }: TopMerchantsCardProps) {
+  const statusMessage =
+    state === "loading"
+      ? "Loading…"
+      : state === "error"
+        ? "Unavailable right now"
+        : "Upload a CSV to see this";
+
   return (
     <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
       <VStack space="sm">
@@ -18,10 +29,24 @@ export function TopMerchantsCard({ month }: TopMerchantsCardProps) {
             Top merchants
           </Text>
           <Text className="text-sm text-typography-500 font-medium">
-            {month ? month.label : "No month selected"}
+            {state === "ready" && month ? month.label : "No month selected"}
           </Text>
         </VStack>
-        {!month || month.topMerchants.length === 0 ? (
+        {state !== "ready" ? (
+          <VStack space="sm" className="py-2">
+            <Text className="text-sm text-typography-500">{statusMessage}</Text>
+            {state === "error" && onRetry ? (
+              <Button
+                size="sm"
+                variant="default"
+                onPress={onRetry}
+                className="self-start rounded-xl bg-blue-500 text-white"
+              >
+                <ButtonText className="font-semibold">Retry</ButtonText>
+              </Button>
+            ) : null}
+          </VStack>
+        ) : !month || month.topMerchants.length === 0 ? (
           <Text className="text-sm text-typography-500 py-2">
             No merchant spending was found for this month.
           </Text>

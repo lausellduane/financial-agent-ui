@@ -1,6 +1,8 @@
 import React from "react";
 import { Pressable } from "react-native";
 import { formatDollars, lastThreeMonths, type MonthSpend } from "../chart-data";
+import type { ChartState } from "./SpendingChart";
+import { Button, ButtonText } from "./ui/button";
 import { Box } from "./ui/box";
 import { Card } from "./ui/card";
 import { HStack } from "./ui/hstack";
@@ -8,18 +10,28 @@ import { Text } from "./ui/text";
 import { VStack } from "./ui/vstack";
 
 type MonthTrendProps = {
+  state: ChartState;
   months: MonthSpend[];
   selectedMonth: string | null;
   onSelectMonth: (month: string) => void;
+  onRetry?: () => void;
 };
 
 export function MonthTrend({
+  state,
   months,
   selectedMonth,
   onSelectMonth,
+  onRetry,
 }: MonthTrendProps) {
-  const shown = lastThreeMonths(months, selectedMonth);
+  const shown = state === "ready" ? lastThreeMonths(months, selectedMonth) : [];
   const max = Math.max(0, ...shown.map((month) => Math.abs(month.totalCents)));
+  const statusMessage =
+    state === "loading"
+      ? "Loading…"
+      : state === "error"
+        ? "Unavailable right now"
+        : "Upload a CSV to see this";
 
   return (
     <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
@@ -32,7 +44,21 @@ export function MonthTrend({
             Total spent · tap a month to view it
           </Text>
         </VStack>
-        {shown.length === 0 ? (
+        {state !== "ready" ? (
+          <VStack space="sm" className="py-2">
+            <Text className="text-sm text-typography-500">{statusMessage}</Text>
+            {state === "error" && onRetry ? (
+              <Button
+                size="sm"
+                variant="default"
+                onPress={onRetry}
+                className="self-start rounded-xl bg-blue-500 text-white"
+              >
+                <ButtonText className="font-semibold">Retry</ButtonText>
+              </Button>
+            ) : null}
+          </VStack>
+        ) : shown.length === 0 ? (
           <Text className="text-sm text-typography-500 py-4">
             No monthly totals to compare yet.
           </Text>
@@ -49,8 +75,11 @@ export function MonthTrend({
                   key={month.month}
                   accessibilityRole="button"
                   accessibilityLabel={`${month.label} ${formatDollars(month.totalCents)}`}
-                  accessibilityState={{ selected }}
-                  onPress={() => onSelectMonth(month.month)}
+                  accessibilityState={{ selected, disabled: !!month.placeholder }}
+                  disabled={!!month.placeholder}
+                  onPress={() => {
+                    if (!month.placeholder) onSelectMonth(month.month);
+                  }}
                   className={`flex-1 min-h-11 items-center justify-end rounded-lg border px-1 py-2 ${
                     selected
                       ? "border-blue-500 bg-blue-50"
