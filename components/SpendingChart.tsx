@@ -1,6 +1,12 @@
 import React, { useState } from "react";
-import { Pressable } from "react-native";
-import { formatDollars, type MonthSpend } from "../chart-data";
+import { Platform, Pressable, type Role } from "react-native";
+import {
+  categoryDeltaCents,
+  formatDollars,
+  formatSignedDollars,
+  priorMonth,
+  type MonthSpend,
+} from "../chart-data";
 import { Box } from "./ui/box";
 import { Button, ButtonText } from "./ui/button";
 import { Card } from "./ui/card";
@@ -11,12 +17,19 @@ import { VStack } from "./ui/vstack";
 
 export type ChartState = "empty" | "loading" | "error" | "ready";
 
+function webAria(label: string, role: Role) {
+  if (Platform.OS !== "web") return undefined;
+  return { role, "aria-label": label };
+}
+
+
 type SpendingChartProps = {
   state: ChartState;
   months: MonthSpend[];
   selectedMonth: string | null;
   onSelectMonth: (month: string) => void;
   onRetry?: () => void;
+  showDeltas?: boolean;
 };
 
 export function SpendingChart({
@@ -25,6 +38,7 @@ export function SpendingChart({
   selectedMonth,
   onSelectMonth,
   onRetry,
+  showDeltas = true,
 }: SpendingChartProps) {
   const [collapsed, setCollapsed] = useState(false);
   const current =
@@ -38,6 +52,7 @@ export function SpendingChart({
   const maxBar = current
     ? Math.max(0, ...current.categories.map((row) => Math.abs(row.cents)))
     : 0;
+  const prior = current ? priorMonth(months, current.month) : undefined;
 
   return (
     <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
@@ -63,6 +78,7 @@ export function SpendingChart({
               accessibilityLabel={
                 collapsed ? "Expand spending chart" : "Collapse spending chart"
               }
+              accessibilityState={{ expanded: !collapsed }}
               onPress={() => setCollapsed((value) => !value)}
               className="h-11 px-3 items-center justify-center rounded-lg"
             >
@@ -150,15 +166,39 @@ export function SpendingChart({
                     maxBar > 0
                       ? Math.max(0, Math.round((Math.abs(row.cents) / maxBar) * 100))
                       : 0;
+                  const delta = showDeltas
+                    ? categoryDeltaCents(current, prior, row.name)
+                    : null;
+                  const deltaLabel =
+                    delta === null
+                      ? ""
+                      : delta === 0
+                        ? `, no change vs ${prior?.label}`
+                        : `, ${delta > 0 ? "up" : "down"} ${formatDollars(Math.abs(delta))} vs ${prior?.label}`;
+                  const barLabel = `${row.name} ${formatDollars(row.cents)}${deltaLabel}`;
                   return (
-                    <VStack key={row.name} space="xs">
+                    <VStack
+                      key={row.name}
+                      space="xs"
+                      accessible
+                      accessibilityRole="text"
+                      accessibilityLabel={barLabel}
+                      {...webAria(barLabel, "img")}
+                    >
                       <HStack className="items-baseline justify-between gap-2">
                         <Text className="text-sm font-medium text-typography-900 flex-1">
                           {row.name}
                         </Text>
-                        <Text className="text-sm font-bold text-typography-900">
-                          {formatDollars(row.cents)}
-                        </Text>
+                        <HStack className="items-baseline gap-2">
+                          <Text className="text-sm font-bold text-typography-900">
+                            {formatDollars(row.cents)}
+                          </Text>
+                          {delta !== null ? (
+                            <Text className="text-xs font-semibold text-typography-500">
+                              {formatSignedDollars(delta)}
+                            </Text>
+                          ) : null}
+                        </HStack>
                       </HStack>
                       <Box className="h-3 rounded-full bg-background-200 overflow-hidden">
                         <Box
