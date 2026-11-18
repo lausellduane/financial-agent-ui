@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isNearBottom, shouldAutoScroll } from "./chat-scroll.ts";
+import { isNearBottom, nextForceScrollFlag, shouldAutoScroll } from "./chat-scroll.ts";
 
 test("shouldAutoScroll forces a scroll on user send even when not near the bottom", () => {
   assert.equal(
@@ -76,4 +76,13 @@ test("isNearBottom uses an 80px threshold and an unmeasured fallback", () => {
   assert.equal(isNearBottom(1000, 800, 80, false), false);
   assert.equal(isNearBottom(1000, 0, 0, true), true);
   assert.equal(isNearBottom(1000, 0, 0, false), false);
+});
+
+test("force-scroll flag stays set until content is applied, and clears on a layout switch", () => {
+  assert.equal(nextForceScrollFlag(false, "send"), true);
+  assert.equal(nextForceScrollFlag(true, "send"), true);
+  assert.equal(nextForceScrollFlag(true, "content-applied"), false);
+  assert.equal(nextForceScrollFlag(false, "content-applied"), false);
+  assert.equal(nextForceScrollFlag(true, "layout-switch"), false);
+  assert.equal(nextForceScrollFlag(false, "layout-switch"), false);
 });

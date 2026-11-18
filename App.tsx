@@ -27,7 +27,7 @@ import { TopMerchantsCard } from "./components/TopMerchantsCard";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
 import { parseMonths, type MonthSpend } from "./chart-data";
-import { isNearBottom, shouldAutoScroll } from "./chat-scroll";
+import { isNearBottom, nextForceScrollFlag, shouldAutoScroll } from "./chat-scroll";
 
 import {
   NO_REPORT,
@@ -221,7 +221,7 @@ function AppLayout() {
   const isWide = width >= 1000;
   const isCompact = width < 700;
   const chatWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
-  const keyboardBehavior = Platform.OS === "ios" ? "padding" : undefined;
+  const keyboardBehavior = Platform.OS === "web" ? undefined : "padding";
   const keyboardVerticalOffset = 0;
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(NO_REPORT);
@@ -272,13 +272,16 @@ function AppLayout() {
       return;
     }
     scrollToLatest();
-    if (appended) forceScrollRef.current = false;
   }
 
   function handleContentSizeChange(_width: number, height: number) {
     const grew = height > contentHeightRef.current;
     contentHeightRef.current = height;
     maybeScrollChat(false, grew);
+    forceScrollRef.current = nextForceScrollFlag(
+      forceScrollRef.current,
+      "content-applied",
+    );
   }
 
   function recordScrollMetrics(event: {
@@ -362,6 +365,10 @@ function AppLayout() {
     scrollOffsetRef.current = 0;
     contentHeightRef.current = 0;
     layoutHeightRef.current = 0;
+    forceScrollRef.current = nextForceScrollFlag(
+      forceScrollRef.current,
+      "layout-switch",
+    );
   }, [isWide]);
 
   useEffect(() => {
@@ -428,7 +435,9 @@ function AppLayout() {
 
     const userQuery = query;
     setQuery("");
-    if (!isWide) forceScrollRef.current = true;
+    if (!isWide) {
+      forceScrollRef.current = nextForceScrollFlag(forceScrollRef.current, "send");
+    }
     setChatLog((prev) => [...prev, { role: "user", text: userQuery }]);
     setLoading(true);
 
@@ -456,7 +465,9 @@ function AppLayout() {
   };
 
   function handleQuickAnswer(question: string, answer: string) {
-    if (!isWide) forceScrollRef.current = true;
+    if (!isWide) {
+      forceScrollRef.current = nextForceScrollFlag(forceScrollRef.current, "send");
+    }
     setChatLog((prev) => [
       ...prev,
       { role: "user", text: question },

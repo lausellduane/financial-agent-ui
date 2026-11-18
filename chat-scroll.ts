@@ -20,3 +20,14 @@ export function shouldAutoScroll(input: {
   if (!input.appended && !input.contentGrew) return false;
   return input.force || input.nearBottom;
 }
+
+export type ForceScrollEvent = "send" | "content-applied" | "layout-switch";
+
+export function nextForceScrollFlag(
+  current: boolean,
+  event: ForceScrollEvent,
+): boolean {
+  if (event === "send") return true;
+  if (event === "content-applied" || event === "layout-switch") return false;
+  return current;
+}
