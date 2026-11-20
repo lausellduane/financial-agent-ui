@@ -1,19 +1,34 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ScrollView, Alert, Platform } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  useWindowDimensions,
+} from "react-native";
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { GluestackUIProvider } from "./components/ui/gluestack-ui-provider";
 import { Box } from "./components/ui/box";
 import { VStack } from "./components/ui/vstack";
-import { HStack } from "./components/ui/hstack";
 import { Text } from "./components/ui/text";
-import { Input, InputField } from "./components/ui/input";
 import { Button, ButtonText } from "./components/ui/button";
 import { Card } from "./components/ui/card";
 import { Spinner } from "./components/ui/spinner";
+import { Composer } from "./components/Composer";
+import { MonthTrend } from "./components/MonthTrend";
 import { QuickQuestions } from "./components/QuickQuestions";
 import { SpendingChart, type ChartState } from "./components/SpendingChart";
+import { SummaryTiles } from "./components/SummaryTiles";
+import { TopMerchantsCard } from "./components/TopMerchantsCard";
 import * as DocumentPicker from "expo-document-picker";
 import "./global.css";
-import { parseMonths, type MonthSpend } from "./chart-data";
+import { latestMonthKey, nextSelectedMonth, parseMonths, type MonthSpend } from "./chart-data";
+import { isNearBottom, nextForceScrollFlag, shouldAutoScroll } from "./chat-scroll";
+
 import {
   NO_REPORT,
   formatReportStatus,
@@ -36,6 +51,8 @@ type ReportCheck =
   | { failed: false; body: unknown }
   | { failed: true; httpStatus: number | null };
 
+type ChatMessage = { role: string; text: string };
+
 async function readReportCheck(): Promise<ReportCheck> {
   try {
     const response = await fetch(`${BACKEND_URL}/api/report`, {
@@ -50,24 +67,250 @@ async function readReportCheck(): Promise<ReportCheck> {
   }
 }
 
-export default function App() {
+function ChatMessages({
+  messages,
+  loading,
+}: {
+  messages: ChatMessage[];
+  loading: boolean;
+}) {
+  return (
+    <VStack space="sm" className="pb-4">
+      {messages.length === 0 && (
+        <Text className="text-center text-typography-400 my-8">
+          Ask a quick question or type below.
+        </Text>
+      )}
+      {messages.map((msg, index) => (
+        <Box
+          key={index}
+          className={`p-3 rounded-xl max-w-[85%] ${
+            msg.role === "user" ? "bg-blue-200 self-end" : "bg-slate-100 self-start"
+          }`}
+        >
+          <Text className="text-typography-900">{msg.text}</Text>
+        </Box>
+      ))}
+      {loading && <Spinner size="small" className="self-center my-4" />}
+    </VStack>
+  );
+}
+
+function Dashboard({
+  width,
+  status,
+  loading,
+  chartState,
+  months,
+  selectedMonth,
+  onSelectMonth,
+  onUpload,
+  onRetry,
+}: {
+  width: number;
+  status: string;
+  loading: boolean;
+  chartState: ChartState;
+  months: MonthSpend[];
+  selectedMonth: string | null;
+  onSelectMonth: (month: string) => void;
+  onUpload: () => void;
+  onRetry: () => void;
+}) {
+  const compactHeader = width <= 520;
+  const fourTiles = width >= 1200 || (width >= 700 && width < 1000);
+  const insightsRow = width >= 1200 || (width >= 700 && width < 1000);
+  const sideBySide = width >= 1000 && width < 1200;
+  const current =
+    months.find((month) => month.month === selectedMonth) ??
+    months[months.length - 1];
+
+  return (
+    <VStack space="lg" className="w-full">
+      <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
+        <Box
+          className={
+            compactHeader
+              ? "flex-col gap-3"
+              : "flex-row items-center justify-between gap-4"
+          }
+        >
+          <VStack space="xs" className="flex-1 min-w-0">
+            <Text className="text-xl font-extrabold text-typography-900">
+              Financial Agent
+            </Text>
+            <Text className="text-sm text-typography-500 font-medium">
+              {status}
+            </Text>
+          </VStack>
+          <Button
+            size="lg"
+            variant="default"
+            isDisabled={loading}
+            onPress={onUpload}
+            className={`rounded-xl h-12 bg-blue-500 hover:bg-primary-700 active:bg-primary-800 text-white ${
+              compactHeader ? "w-full" : ""
+            }`}
+          >
+            <ButtonText className="font-semibold">
+              {loading ? "Uploading…" : "Upload CSV"}
+            </ButtonText>
+          </Button>
+        </Box>
+      </Card>
+
+      <SummaryTiles
+        state={chartState}
+        months={months}
+        selectedMonth={selectedMonth}
+        columns={fourTiles ? 4 : 2}
+        onRetry={onRetry}
+      />
+
+      <Box
+        className={insightsRow ? "flex-row items-start w-full" : "w-full"}
+        style={insightsRow ? { gap: 24 } : undefined}
+      >
+        <Box className={insightsRow ? "flex-[7] min-w-0" : "w-full"}>
+          <SpendingChart
+            state={chartState}
+            months={months}
+            selectedMonth={selectedMonth}
+            onSelectMonth={onSelectMonth}
+            onRetry={onRetry}
+            showDeltas={width > 360}
+          />
+        </Box>
+        <Box
+          className={
+            insightsRow
+              ? "flex-[5] min-w-0"
+              : sideBySide
+                ? "flex-row w-full mt-6"
+                : "w-full mt-6"
+          }
+          style={insightsRow || sideBySide ? { gap: 24 } : { gap: 24 }}
+        >
+          <Box
+            className={sideBySide ? "flex-1 min-w-0" : "w-full"}
+            style={!insightsRow && !sideBySide ? { marginBottom: 24 } : undefined}
+          >
+            <MonthTrend
+              state={chartState}
+              months={months}
+              selectedMonth={selectedMonth}
+              onSelectMonth={onSelectMonth}
+              onRetry={onRetry}
+            />
+          </Box>
+          <Box className={sideBySide ? "flex-1 min-w-0" : "w-full"}>
+            <TopMerchantsCard
+              state={chartState}
+              month={current}
+              onRetry={onRetry}
+            />
+          </Box>
+        </Box>
+      </Box>
+    </VStack>
+  );
+}
+
+function AppLayout() {
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isWide = width >= 1000;
+  const isCompact = width < 700;
+  const isShort = height < 800;
+  // Reserve the 24px right gutter so the visible chat card stays >= 340px
+  // at a 1000px layout width.
+  const chatGutter = 24;
+  const chatCardWidth = Math.min(420, Math.max(340, Math.round(width * 0.3)));
+  const chatWidth = chatCardWidth + chatGutter;
+  const keyboardBehavior = Platform.OS === "web" ? undefined : "padding";
+  const keyboardVerticalOffset = 0;
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(NO_REPORT);
   const [query, setQuery] = useState("");
-  const [chatLog, setChatLog] = useState<{ role: string; text: string }[]>([]);
+  const [chatLog, setChatLog] = useState<ChatMessage[]>([]);
   const [months, setMonths] = useState<MonthSpend[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const latestMonthRef = useRef<string | null>(null);
   const [chartState, setChartState] = useState<ChartState>(
     missingNativeApiUrl ? "empty" : "loading",
   );
   const reportRequestSeq = useRef(0);
+  const chatScrollRef = useRef<ScrollView>(null);
+  const chatLogLengthRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+  const forceScrollRef = useRef(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  function nearBottom() {
+    return isNearBottom(
+      contentHeightRef.current,
+      scrollOffsetRef.current,
+      layoutHeightRef.current,
+      isWide,
+    );
+  }
+
+  function scrollToLatest() {
+    chatScrollRef.current?.scrollToEnd({ animated: true });
+    if (layoutHeightRef.current > 0) {
+      scrollOffsetRef.current = Math.max(
+        0,
+        contentHeightRef.current - layoutHeightRef.current,
+      );
+    }
+  }
+
+  function maybeScrollChat(appended: boolean, contentGrew: boolean) {
+    if (
+      !shouldAutoScroll({
+        force: forceScrollRef.current,
+        appended,
+        contentGrew,
+        nearBottom: nearBottom(),
+      })
+    ) {
+      return;
+    }
+    scrollToLatest();
+  }
+
+  function handleContentSizeChange(_width: number, height: number) {
+    const grew = height > contentHeightRef.current;
+    contentHeightRef.current = height;
+    maybeScrollChat(false, grew);
+    forceScrollRef.current = nextForceScrollFlag(
+      forceScrollRef.current,
+      "content-applied",
+    );
+  }
+
+  function recordScrollMetrics(event: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      contentSize: { height: number };
+      layoutMeasurement: { height: number };
+    };
+  }) {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    scrollOffsetRef.current = contentOffset.y;
+    contentHeightRef.current = contentSize.height;
+    layoutHeightRef.current = layoutMeasurement.height;
+  }
 
   function applyMonths(next: MonthSpend[]) {
+    const previousLatest = latestMonthRef.current;
+    latestMonthRef.current = latestMonthKey(next);
     setMonths(next);
-    setSelectedMonth((current) => {
-      if (current && next.some((month) => month.month === current)) return current;
-      return next.length ? next[next.length - 1]!.month : null;
-    });
+    setSelectedMonth((current) =>
+      nextSelectedMonth(current, next, previousLatest),
+    );
   }
 
   function applyReportCheck(
@@ -79,7 +322,7 @@ export default function App() {
     if (check.failed) {
       setStatus(statusForFailedReportCheck(check.httpStatus, uploadBody));
       applyMonths([]);
-      setChartState(check.httpStatus === 401 ? "empty" : "error");
+      setChartState("error");
       return;
     }
     setStatus(formatReportStatus(check.body));
@@ -111,7 +354,38 @@ export default function App() {
     };
   }, []);
 
-  // Securely upload and parse statements locally on Windows
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardOpen(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardOpen(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    scrollOffsetRef.current = 0;
+    contentHeightRef.current = 0;
+    layoutHeightRef.current = 0;
+    forceScrollRef.current = nextForceScrollFlag(
+      forceScrollRef.current,
+      "layout-switch",
+    );
+  }, [isWide]);
+
+  useEffect(() => {
+    const previousLength = chatLogLengthRef.current;
+    const appended = chatLog.length > previousLength;
+    chatLogLengthRef.current = chatLog.length;
+    maybeScrollChat(appended, false);
+  }, [chatLog.length, isWide]);
+
   const handleFileUpload = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -121,21 +395,18 @@ export default function App() {
 
       setLoading(true);
       setChartState("loading");
-      const fileAsset = result.assets[0]; // Extract the first index item
+      const fileAsset = result.assets[0];
       const formData = new FormData();
 
       if (Platform.OS === "web") {
-        // METHOD A: If the native browser File object is nested under .file
         if (fileAsset.file instanceof File) {
           formData.append("file", fileAsset.file, fileAsset.name);
         } else {
-          // METHOD B: Safe fallback - fetch the blob data directly from the browser memory URI
           const blobResponse = await fetch(fileAsset.uri);
           const fileBlob = await blobResponse.blob();
           formData.append("file", fileBlob, fileAsset.name);
         }
       } else {
-        // Fallback for native mobile devices (iOS/Android)
         formData.append("file", {
           uri: fileAsset.uri,
           name: fileAsset.name,
@@ -159,18 +430,22 @@ export default function App() {
       applyReportCheck(seq, await readReportCheck(), uploadBody);
     } catch (err: any) {
       Alert.alert("Upload Error", err.message || "Could not upload report.");
-      setChartState((current) => (current === "loading" ? (months.length ? "ready" : "empty") : current));
+      setChartState((current) =>
+        current === "loading" ? (months.length ? "ready" : "empty") : current,
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // Push localized queries down loopback port directly into local Llama model
   const handleAskLLM = async () => {
     if (!query.trim()) return;
 
     const userQuery = query;
     setQuery("");
+    if (!isWide) {
+      forceScrollRef.current = nextForceScrollFlag(forceScrollRef.current, "send");
+    }
     setChatLog((prev) => [...prev, { role: "user", text: userQuery }]);
     setLoading(true);
 
@@ -198,6 +473,9 @@ export default function App() {
   };
 
   function handleQuickAnswer(question: string, answer: string) {
+    if (!isWide) {
+      forceScrollRef.current = nextForceScrollFlag(forceScrollRef.current, "send");
+    }
     setChatLog((prev) => [
       ...prev,
       { role: "user", text: question },
@@ -205,10 +483,51 @@ export default function App() {
     ]);
   }
 
+  const dashboard = (
+    <Dashboard
+      width={width}
+      status={status}
+      loading={loading}
+      chartState={chartState}
+      months={months}
+      selectedMonth={selectedMonth}
+      onSelectMonth={setSelectedMonth}
+      onUpload={() => {
+        void handleFileUpload();
+      }}
+      onRetry={() => {
+        void refreshReport();
+      }}
+    />
+  );
+
+  const questions = (
+    <QuickQuestions
+      months={months}
+      selectedMonth={selectedMonth}
+      disabled={loading || chartState !== "ready"}
+      horizontal={isCompact || isShort}
+      onAnswer={handleQuickAnswer}
+    />
+  );
+
+  const composer = (
+    <Composer
+      query={query}
+      onChangeQuery={setQuery}
+      onAsk={() => {
+        void handleAskLLM();
+      }}
+      disabled={loading}
+    />
+  );
+
   if (missingNativeApiUrl) {
     return (
-      <GluestackUIProvider>
-        <Box className="flex-1 bg-background-50 p-6 pt-12">
+      <Box
+        className="flex-1 bg-background-50 p-6"
+        style={{ paddingTop: Math.max(24, insets.top) }}
+      >
           <VStack space="md" className="max-w-[600px] mx-auto w-full">
             <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
               <VStack space="xs">
@@ -222,114 +541,127 @@ export default function App() {
               </VStack>
             </Card>
           </VStack>
+      </Box>
+    );
+  }
+
+  if (isWide) {
+    return (
+      <KeyboardAvoidingView
+        className="flex-1 bg-background-50"
+        style={{ flex: 1 }}
+        behavior={keyboardBehavior}
+        keyboardVerticalOffset={keyboardVerticalOffset}
+      >
+        <Box
+          className="flex-1 flex-row min-h-0"
+          style={{ paddingTop: insets.top }}
+        >
+          <ScrollView
+            className="flex-1 min-h-0"
+            contentContainerStyle={{ padding: 24, gap: 24, flexGrow: 1 }}
+          >
+            {dashboard}
+          </ScrollView>
+          <Box
+            style={{
+              width: chatWidth,
+              paddingTop: 24,
+              paddingRight: 24,
+              paddingBottom: keyboardOpen ? 24 : Math.max(24, insets.bottom),
+            }}
+            className="min-h-0"
+          >
+            <Card className="flex-1 min-h-0 bg-white border border-outline-100 rounded-xl shadow-sm overflow-hidden">
+              <VStack className="flex-1 min-h-0">
+                <Box className="px-5 pt-4 pb-3 border-b border-outline-100">
+                  <Text className="text-base font-bold text-typography-900">
+                    Ask about your spending
+                  </Text>
+                  <Text className="text-sm text-typography-500 font-medium">
+                    Answers use the loaded report
+                  </Text>
+                </Box>
+                <ScrollView
+                  ref={chatScrollRef}
+                  className="flex-1 min-h-0"
+                  contentContainerStyle={{ padding: 16, flexGrow: 1 }}
+                  accessibilityLabel="Chat messages"
+                  scrollEventThrottle={16}
+                  onScroll={recordScrollMetrics}
+                  onContentSizeChange={handleContentSizeChange}
+                  onLayout={(event) => {
+                    layoutHeightRef.current = event.nativeEvent.layout.height;
+                  }}
+                >
+                  <ChatMessages messages={chatLog} loading={loading} />
+                </ScrollView>
+                <VStack space="sm" className="px-4 pt-3 pb-4 border-t border-outline-100">
+                  {questions}
+                  {composer}
+                </VStack>
+              </VStack>
+            </Card>
+          </Box>
         </Box>
-      </GluestackUIProvider>
+      </KeyboardAvoidingView>
     );
   }
 
   return (
-    <GluestackUIProvider>
-      <Box className="flex-1 bg-background-50 p-6 pt-12">
-        <VStack space="md" className="max-w-[600px] mx-auto w-full flex-1">
-          {/* Top Panel Brand Status Card */}
-          <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm">
-            <VStack space="xs">
-              <Text className="text-xl font-bold text-typography-900">
-                Secure Cash Management AI
-              </Text>
-              <Text className="text-sm text-typography-500 font-medium">
-                {status}
-              </Text>
-            </VStack>
+    <KeyboardAvoidingView
+      className="flex-1 bg-background-50"
+      style={{ flex: 1 }}
+      behavior={keyboardBehavior}
+      keyboardVerticalOffset={keyboardVerticalOffset}
+    >
+      <Box className="flex-1 min-h-0" style={{ paddingTop: insets.top }}>
+        <ScrollView
+          ref={chatScrollRef}
+          className="flex-1 min-h-0"
+          contentContainerStyle={{
+            padding: isCompact ? 16 : 24,
+            gap: isCompact ? 16 : 24,
+            paddingBottom: 16,
+          }}
+          scrollEventThrottle={16}
+          onScroll={recordScrollMetrics}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={(event) => {
+            layoutHeightRef.current = event.nativeEvent.layout.height;
+          }}
+        >
+          {dashboard}
+          <Card className="bg-white border border-outline-100 rounded-xl p-4 shadow-sm mt-6">
+            <Text className="text-base font-bold text-typography-900 mb-1">
+              Ask about your spending
+            </Text>
+            <Text className="text-sm text-typography-500 font-medium mb-3">
+              Answers use the loaded report
+            </Text>
+            <ChatMessages messages={chatLog} loading={loading} />
           </Card>
-
-          {/* Action Area Component Button */}
-          <Button
-            size="lg"
-            variant="default"
-            isDisabled={loading}
-            onPress={handleFileUpload}
-            className="rounded-xl h-12 bg-blue-500 hover:bg-primary-700 active:bg-primary-800 text-white"
-          >
-            <ButtonText className="font-semibold">
-              {loading
-                ? "Parsing Windows Filesystem..."
-                : "Upload Transaction CSV"}
-            </ButtonText>
-          </Button>
-
-          <SpendingChart
-            state={chartState}
-            months={months}
-            selectedMonth={selectedMonth}
-            onSelectMonth={setSelectedMonth}
-            onRetry={() => {
-              void refreshReport();
-            }}
-          />
-
-          {/* Structured Chat History Logger */}
-          <ScrollView className="flex-1 bg-white border border-outline-200 rounded-xl p-4 min-h-[300px]">
-            <VStack space="sm" className="pb-4">
-              {chatLog.length === 0 && (
-                <Text className="text-center text-typography-400 my-12">
-                  Upload a local statement file above to begin querying
-                  securely.
-                </Text>
-              )}
-              {chatLog.map((msg, index) => (
-                <Box
-                  key={index}
-                  className={`p-3 rounded-xl max-w-[85%] bg-slate-100 ${
-                    msg.role === "user"
-                      ? "bg-blue-200 self-end"
-                      : "bg-slate-100 self-start"
-                  }`}
-                >
-                  <Text
-                    className={
-                      msg.role === "user"
-                        ? "bg-primary-600"
-                        : "text-typography-900"
-                    }
-                  >
-                    {msg.text}
-                  </Text>
-                </Box>
-              ))}
-              {loading && <Spinner size="small" className="self-center my-4" />}
-            </VStack>
-          </ScrollView>
-
-          <QuickQuestions
-            months={months}
-            selectedMonth={selectedMonth}
-            disabled={loading || chartState !== "ready"}
-            onAnswer={handleQuickAnswer}
-          />
-
-          {/* Input Communication Dashboard Container */}
-          <HStack space="sm" className="items-center pb-4">
-            <Input className="flex-1 rounded-xl bg-white h-12 border-outline-300 focus:border-primary-500">
-              <InputField
-                placeholder="Ask e.g., 'What was my highest charge?'"
-                value={query}
-                onChangeText={setQuery}
-                onSubmitEditing={handleAskLLM}
-              />
-            </Input>
-            <Button
-              size="lg"
-              variant="default"
-              isDisabled={loading}
-              onPress={handleAskLLM}
-              className="rounded-xl h-12 bg-blue-500 hover:bg-primary-700 active:bg-primary-800 text-white"
-            >
-              <ButtonText className="font-semibold">Ask</ButtonText>
-            </Button>
-          </HStack>
-        </VStack>
+        </ScrollView>
+        <Box
+          className="border-t border-outline-100 bg-white px-4 pt-3"
+          style={{ paddingBottom: keyboardOpen ? 12 : Math.max(12, insets.bottom) }}
+        >
+          <VStack space="sm">
+            {questions}
+            {composer}
+          </VStack>
+        </Box>
       </Box>
-    </GluestackUIProvider>
+    </KeyboardAvoidingView>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <GluestackUIProvider>
+        <AppLayout />
+      </GluestackUIProvider>
+    </SafeAreaProvider>
   );
 }
