@@ -1,3 +1,4 @@
+# Rollback: npx wrangler deployments list --name financial-agent-ui-poc, then npx wrangler rollback <version-id> --name financial-agent-ui-poc (needs Duane's yes).
 # Do not merge until CLOUDFLARE_API_TOKEN (repository secret) and
 # CLOUDFLARE_ACCOUNT_ID (repository variable) are set, and Duane approves
 # enabling auto-deploy. Targets the existing POC Worker only.
@@ -44,6 +45,10 @@ jobs:
       # Leave EXPO_PUBLIC_API_URL unset so the bundle calls same-origin /api.
       - name: Export web assets
         run: npm run export:web
+
+      # Validates the poc Worker bundle and bindings without uploading.
+      - name: Worker check
+        run: npx wrangler deploy --dry-run --env poc --outdir dist-worker
 
   deploy:
     name: Deploy financial-agent-ui-poc
